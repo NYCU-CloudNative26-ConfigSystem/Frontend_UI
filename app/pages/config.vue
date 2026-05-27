@@ -359,6 +359,8 @@ function pickValueResult(row: EditorRow, result: ValueSearchResult) {
 
 // Called when user clicks "Link" on a value conflict entry
 function linkFromValue(row: EditorRow, result: ValueSearchResult) {
+  // Fill alias if blank — user arrived via value search, not alias search
+  if (!row.alias.trim()) row.alias = result.name
   row.truthId = result.truth
   row.isNew = false
   row.linkedTruthName = result.name
@@ -437,6 +439,8 @@ async function submitConfig() {
     return
   }
   if (rows.value.length === 0) { submitError.value = 'Add at least one row.'; return }
+  const blankAlias = rows.value.find(r => !r.alias.trim())
+  if (blankAlias) { submitError.value = 'Every row must have a key name before saving.'; return }
   if (!projId.value || !cmpId.value || !envId.value) { submitError.value = 'Project, Company, and Environment are required.'; return }
   submitting.value = true
   try {
