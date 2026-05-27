@@ -353,7 +353,7 @@ function onValueInput(row: EditorRow) {
 }
 
 function pickValueResult(row: EditorRow, result: ValueSearchResult) {
-  row.value = String(result.val)
+  linkFromValue(row, result)   // fills alias if blank, links TruthNode, clears conflict state
   row.valueShowDropdown = false
 }
 
