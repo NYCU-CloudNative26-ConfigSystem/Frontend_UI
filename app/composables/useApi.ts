@@ -115,6 +115,17 @@ export interface ConfigApprovalResponse {
   rejection_reason: string | null
 }
 
+export interface TruthNodeResponse {
+  uniqueID: string
+  Truth: string
+  CMPID: string
+  projectID: string
+  latestVal: string        // 'VALUE:<uuid>' or 'GROUP:<uuid>'
+  latestName: string
+  sensitive: boolean
+  latestAlias: string
+}
+
 export interface CompanyResponse {
   uuid: string
   cmp_id: string
@@ -238,6 +249,11 @@ export function useApi() {
       resolveNode: (uuid: string, token: string) =>
         req<NodeResolveResponse>(
           `${BASE.ssot}/api/v1/node/${uuid}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        ),
+      getTruthNode: (uuid: string, token: string) =>
+        req<TruthNodeResponse>(
+          `${BASE.ssot}/api/v1/truth/${encodeURIComponent(uuid)}`,
           { headers: { Authorization: `Bearer ${token}` } },
         ),
       setSensitive: (truthId: string, sensitive: boolean, token: string) =>
