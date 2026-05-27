@@ -438,7 +438,7 @@ async function submitConfig() {
 
     <!-- Sticky nav with breadcrumb -->
     <nav class="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-slate-100">
-      <div class="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
+      <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 min-w-0 text-sm">
           <NuxtLink to="/home" class="text-slate-400 hover:text-slate-700 transition shrink-0">← Home</NuxtLink>
           <span class="text-slate-200 shrink-0 select-none">|</span>
@@ -467,7 +467,7 @@ async function submitConfig() {
       </div>
     </nav>
 
-    <div class="max-w-3xl mx-auto px-4 py-6 pb-16 space-y-4">
+    <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
 
       <!-- No project selected -->
       <div v-if="!projId" class="bg-white rounded-2xl ring-1 ring-slate-900/5 p-12 text-center space-y-2">
@@ -483,7 +483,7 @@ async function submitConfig() {
         <template v-else>
 
           <!-- Tab switcher -->
-          <div class="flex items-center gap-0.5 bg-white rounded-xl ring-1 ring-slate-900/5 p-1 self-start w-fit">
+          <div class="flex items-center gap-0.5 bg-white rounded-xl ring-1 ring-slate-900/5 p-1 self-start max-w-full overflow-x-auto">
             <button
               @click="activeTab = 'template'"
               :class="activeTab === 'template' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'"
@@ -724,7 +724,7 @@ async function submitConfig() {
             <h2 class="font-semibold text-slate-900 text-sm">Select Environment</h2>
             <p class="text-xs text-slate-400 mt-0.5">{{ resolveCompanyName(cmpId) }} · Each environment has its own independent config history.</p>
           </div>
-          <div class="grid grid-cols-2 gap-3 p-5">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-5">
             <button
               v-for="env in ENVIRONMENTS" :key="env.id"
               @click="selectEnvironment(env.id)"
@@ -819,7 +819,7 @@ async function submitConfig() {
                         <div class="flex items-center gap-1.5 shrink-0">
                           <span v-if="r.is_sensitive"
                             class="text-[10px] font-bold text-amber-600 bg-amber-50 ring-1 ring-amber-200 px-1.5 py-0.5 rounded-full uppercase">Sensitive</span>
-                          <span class="text-slate-400 text-xs truncate max-w-[120px]">
+                          <span class="text-slate-400 text-xs truncate max-w-[100px] sm:max-w-[120px] md:max-w-[180px]">
                             {{ r.projectID }} · {{ r.is_sensitive ? '[sensitive]' : r.latestValue }}
                           </span>
                         </div>

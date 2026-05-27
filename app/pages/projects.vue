@@ -123,7 +123,7 @@ function modeLabel(m: DisplayMode) {
 <template>
   <div class="min-h-screen bg-slate-50">
     <nav class="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-slate-100">
-      <div class="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
+      <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
         <div class="flex items-center gap-3">
           <NuxtLink to="/home" class="text-sm text-slate-400 hover:text-slate-700 transition">← Home</NuxtLink>
           <span class="text-slate-200 select-none">|</span>
@@ -133,7 +133,7 @@ function modeLabel(m: DisplayMode) {
       </div>
     </nav>
 
-    <div class="max-w-3xl mx-auto px-4 py-6 pb-16 space-y-3">
+    <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-3">
 
       <!-- Create project panel -->
       <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
@@ -195,7 +195,7 @@ function modeLabel(m: DisplayMode) {
           class="bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 space-y-4">
 
           <!-- Header -->
-          <div class="flex gap-3 items-start justify-between">
+          <div class="flex flex-wrap gap-3 items-start justify-between">
             <div class="min-w-0 space-y-1">
               <div class="flex items-center gap-2 flex-wrap">
                 <h3 class="font-semibold text-slate-900">{{ project.display_name }}</h3>
@@ -252,7 +252,7 @@ function modeLabel(m: DisplayMode) {
                   v-model="newCmpInput[project.proj_id]"
                   :companies="allCompanies.filter(c => !project.companies.includes(c.cmp_id))"
                   placeholder="Search company…"
-                  input-class="ring-1 ring-slate-200 rounded-lg px-2 py-1 text-xs bg-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 w-36 transition"
+                  input-class="ring-1 ring-slate-200 rounded-lg px-2 py-1 text-xs bg-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 w-full sm:w-36 transition"
                 />
                 <button @click="addCompany(project.proj_id)"
                   class="text-xs text-blue-600 hover:text-blue-800 font-semibold transition">✓</button>
@@ -285,7 +285,7 @@ function modeLabel(m: DisplayMode) {
                     v-model="newCmpInput[project.proj_id]"
                     :companies="allCompanies.filter(c => !project.companies.includes(c.cmp_id))"
                     placeholder="Search company…"
-                    input-class="ring-1 ring-slate-200 rounded-lg px-2 py-1 text-xs bg-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 w-36 transition"
+                    input-class="ring-1 ring-slate-200 rounded-lg px-2 py-1 text-xs bg-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 w-full sm:w-36 transition"
                   />
                   <button @click="addCompany(project.proj_id)"
                     class="text-xs text-blue-600 hover:text-blue-800 font-semibold transition">✓</button>
@@ -327,7 +327,7 @@ function modeLabel(m: DisplayMode) {
                   v-model="newCmpInput[project.proj_id]"
                   :companies="allCompanies.filter(c => !project.companies.includes(c.cmp_id))"
                   placeholder="Search company…"
-                  input-class="ring-1 ring-slate-200 rounded-lg px-2 py-1 text-xs bg-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 w-36 transition"
+                  input-class="ring-1 ring-slate-200 rounded-lg px-2 py-1 text-xs bg-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 w-full sm:w-36 transition"
                 />
                 <button @click="addCompany(project.proj_id)"
                   class="text-xs text-blue-600 hover:text-blue-800 font-semibold transition">✓</button>
