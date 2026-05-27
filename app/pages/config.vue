@@ -233,6 +233,7 @@ interface EditorRow {
   valueSearchResults: ValueSearchResult[]
   valueShowDropdown: boolean
   valueSearchTimer: ReturnType<typeof setTimeout> | null
+  linkedTruthName: string  // alias of the linked TruthNode ('' = same as alias or unlinked)
 }
 
 const showEditor = ref(false)
@@ -249,6 +250,7 @@ function makeRow(): EditorRow {
     isNew: true, truthId: '', searchResults: [], showDropdown: false, searchTimer: null,
     isTemplate: false, sensitive: false,
     valueSearchResults: [], valueShowDropdown: false, valueSearchTimer: null,
+    linkedTruthName: '',
   }
 }
 
@@ -258,6 +260,7 @@ function makeTemplateRow(key: ProjectTemplateKey): EditorRow {
     isNew: true, truthId: '', searchResults: [], showDropdown: false, searchTimer: null,
     isTemplate: true, sensitive: false,
     valueSearchResults: [], valueShowDropdown: false, valueSearchTimer: null,
+    linkedTruthName: '',
   }
 }
 
@@ -296,12 +299,15 @@ function onAliasInput(row: EditorRow) {
 }
 
 function pickSearchResult(row: EditorRow, result: SearchResult) {
-  row.alias = result.name
+  // Keep row.alias as the user typed it — it becomes the local alias for this project.
+  // A different alias + same TruthNode UUID creates a new NameNode linked to the same TruthNode.
   row.truthId = result.truth
   row.value = result.latestValue !== null ? String(result.latestValue) : ''
   row.isNew = false
   row.showDropdown = false
   row.sensitive = result.is_sensitive ?? false
+  // Track original alias for the "linked to" badge (hidden when same as row.alias)
+  row.linkedTruthName = result.name
 }
 
 function onValueInput(row: EditorRow) {
@@ -325,7 +331,7 @@ function pickValueResult(row: EditorRow, result: ValueSearchResult) {
 
 function toggleNew(row: EditorRow) {
   row.isNew = !row.isNew
-  if (row.isNew) { row.truthId = ''; row.value = '' }
+  if (row.isNew) { row.truthId = ''; row.value = ''; row.linkedTruthName = '' }
   row.showDropdown = false
 }
 
@@ -810,6 +816,11 @@ async function submitConfig() {
                     <input v-model="row.alias" @input="onAliasInput(row)" type="text"
                       placeholder="Key (e.g. phone)"
                       class="w-full ring-1 ring-slate-200 rounded-xl px-3 py-2 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+                    <!-- Badge: shows when local alias differs from the linked TruthNode's original alias -->
+                    <p v-if="!row.isNew && row.linkedTruthName && row.linkedTruthName !== row.alias"
+                      class="text-xs text-blue-500 mt-0.5 pl-1 truncate">
+                      → {{ row.linkedTruthName }}
+                    </p>
                     <ul v-if="row.showDropdown"
                       class="absolute z-10 left-0 right-0 mt-1 bg-white ring-1 ring-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                       <li v-for="r in row.searchResults" :key="r.truth"
