@@ -281,7 +281,7 @@ function onAliasInput(row: EditorRow) {
   if (row.alias.trim().length < 1) { row.searchResults = []; row.showDropdown = false; return }
   row.searchTimer = setTimeout(async () => {
     try {
-      row.searchResults = await api.ssot.search(row.alias, auth.token)
+      row.searchResults = await api.ssot.search(row.alias, cmpId.value, auth.token)
       row.showDropdown = row.searchResults.length > 0
     } catch { row.searchResults = []; row.showDropdown = false }
   }, 300)
@@ -304,7 +304,7 @@ function onValueInput(row: EditorRow) {
   }
   row.valueSearchTimer = setTimeout(async () => {
     try {
-      row.valueSearchResults = await api.ssot.searchByValue(row.value, row.alias, auth.token)
+      row.valueSearchResults = await api.ssot.searchByValue(row.value, row.alias, cmpId.value, auth.token)
       row.valueShowDropdown = row.valueSearchResults.length > 0
     } catch { row.valueSearchResults = []; row.valueShowDropdown = false }
   }, 300)

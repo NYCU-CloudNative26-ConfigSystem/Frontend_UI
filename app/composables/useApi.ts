@@ -225,14 +225,14 @@ export function useApi() {
     },
 
     ssot: {
-      search: (q: string, token: string) =>
+      search: (q: string, cmpId: string, token: string) =>
         req<SearchResult[]>(
-          `${BASE.ssot}/api/v1/search?q=${encodeURIComponent(q)}`,
+          `${BASE.ssot}/api/v1/search?q=${encodeURIComponent(q)}&cmpid=${encodeURIComponent(cmpId)}`,
           { headers: { Authorization: `Bearer ${token}` } },
         ),
-      searchByValue: (q: string, name: string, token: string) =>
+      searchByValue: (q: string, name: string, cmpId: string, token: string) =>
         req<ValueSearchResult[]>(
-          `${BASE.ssot}/api/v1/search/value?q=${encodeURIComponent(q)}&name=${encodeURIComponent(name)}`,
+          `${BASE.ssot}/api/v1/search/value?q=${encodeURIComponent(q)}&name=${encodeURIComponent(name)}&cmpid=${encodeURIComponent(cmpId)}`,
           { headers: { Authorization: `Bearer ${token}` } },
         ),
       resolveNode: (uuid: string, token: string) =>
