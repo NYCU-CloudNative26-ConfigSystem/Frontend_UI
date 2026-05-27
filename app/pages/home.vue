@@ -7,6 +7,7 @@ const auth = useAuthStore()
 const statuses = ref<Record<string, 'ok' | 'error' | 'checking'>>({
   login: 'checking',
   config: 'checking',
+  export: 'checking',
   ssot: 'checking',
   template: 'checking',
   version: 'checking',
@@ -16,6 +17,7 @@ async function checkHealth() {
   const checks: [string, () => Promise<{ status: string }>][] = [
     ['login', api.health.login],
     ['config', api.health.config],
+    ['export', api.health.export],
     ['ssot', api.health.ssot],
     ['template', api.health.template],
     ['version', api.health.version],
@@ -50,7 +52,7 @@ onMounted(checkHealth)
 
     <main class="max-w-3xl mx-auto px-4 py-6 pb-16 space-y-4">
       <!-- Navigation cards -->
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <NuxtLink to="/companies"
           class="group bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 hover:ring-blue-500/40 hover:shadow-sm transition-all">
           <div class="w-9 h-9 bg-violet-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-violet-200 transition">
@@ -76,6 +78,15 @@ onMounted(checkHealth)
           </div>
           <p class="font-semibold text-slate-800 text-sm">Config Manager</p>
           <p class="text-xs text-slate-400 mt-0.5">Browse config snapshots</p>
+        </NuxtLink>
+
+        <NuxtLink to="/export"
+          class="group bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 hover:ring-blue-500/40 hover:shadow-sm transition-all">
+          <div class="w-9 h-9 bg-amber-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-amber-200 transition">
+            <span class="text-amber-700 text-xs font-bold">EXP</span>
+          </div>
+          <p class="font-semibold text-slate-800 text-sm">Config Export</p>
+          <p class="text-xs text-slate-400 mt-0.5">Download JSON, YAML, ENV, XML</p>
         </NuxtLink>
       </div>
 

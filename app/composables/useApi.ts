@@ -107,6 +107,15 @@ export interface ConfigHistoryItem {
   change_description: string | null
 }
 
+export interface ExportDownloadPayload {
+  proj_id: string
+  cmp_id: string
+  environment: string
+  format: 'json' | 'yaml' | 'env' | 'xml' | 'properties'
+  version_uuid?: string | null
+  filename?: string | null
+}
+
 export interface ConfigApprovalResponse {
   config_relation_uuid: string
   approval_status: string
@@ -162,6 +171,7 @@ export interface PublishedTemplateKeysResponse {
 const BASE = {
   login: "/api/login",
   config: "/api/config",
+  export: "/api/export",
   ssot: "/api/ssot",
   template: "/api/template",
   version: "/api/version",
@@ -192,6 +202,26 @@ async function req<T>(url: string, opts: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
+async function reqBlob(url: string, opts: RequestInit = {}): Promise<{ blob: Blob; headers: Headers }> {
+  const { headers: optsHeaders, ...restOpts } = opts
+  const res = await fetch(url, {
+    headers: { "Content-Type": "application/json", ...(optsHeaders as Record<string, string>) },
+    ...restOpts,
+  })
+  if (!res.ok) {
+    let message = `${res.status} ${res.statusText}`
+    try {
+      const json = await res.json()
+      message = json.detail ?? json.message ?? message
+    } catch {
+      const text = await res.text().catch(() => '')
+      if (text) message = text
+    }
+    throw new Error(message)
+  }
+  return { blob: await res.blob(), headers: res.headers }
+}
+
 // ── API client ────────────────────────────────────────────────────────────────
 
 export function useApi() {
@@ -199,6 +229,7 @@ export function useApi() {
     health: {
       login: () => req<{ status: string }>(`${BASE.login}/health`),
       config: () => req<{ status: string }>(`${BASE.config}/health`),
+      export: () => req<{ status: string }>(`${BASE.export}/health`),
       ssot: () => req<{ status: string }>(`${BASE.ssot}/health`),
       template: () => req<{ status: string }>(`${BASE.template}/health`),
       version: () => req<{ status: string }>(`${BASE.version}/health`),
@@ -378,6 +409,19 @@ export function useApi() {
         req<PublishedTemplateKeysResponse>(
           `${BASE.config}/api/v1/projects/${encodeURIComponent(projId)}/template/published-keys`,
           { headers: { Authorization: `Bearer ${token}` } },
+        ),
+    },
+
+    export: {
+      listVersions: (projId: string, cmpId: string, environment: string, token: string) =>
+        req<ConfigHistoryItem[]>(
+          `${BASE.export}/api/v1/exports/versions?proj_id=${encodeURIComponent(projId)}&cmp_id=${encodeURIComponent(cmpId)}&environment=${encodeURIComponent(environment)}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        ),
+      download: (payload: ExportDownloadPayload, token: string) =>
+        reqBlob(
+          `${BASE.export}/api/v1/exports/download`,
+          { method: 'POST', body: JSON.stringify(payload), headers: { Authorization: `Bearer ${token}` } },
         ),
     },
   };
