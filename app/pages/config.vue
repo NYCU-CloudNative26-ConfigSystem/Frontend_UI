@@ -282,7 +282,15 @@ function onAliasInput(row: EditorRow) {
   row.searchTimer = setTimeout(async () => {
     try {
       row.searchResults = await api.ssot.search(row.alias, cmpId.value, auth.token)
-      row.showDropdown = row.searchResults.length > 0
+      // Auto-link if there is an exact alias match within this company
+      const exact = row.searchResults.find(r => r.name.toLowerCase() === row.alias.trim().toLowerCase())
+      if (exact) {
+        pickSearchResult(row, exact)
+        // Still show the dropdown when there are other results so the user can pick a different one
+        row.showDropdown = row.searchResults.length > 1
+      } else {
+        row.showDropdown = row.searchResults.length > 0
+      }
     } catch { row.searchResults = []; row.showDropdown = false }
   }, 300)
 }
@@ -321,6 +329,18 @@ function toggleNew(row: EditorRow) {
   row.showDropdown = false
 }
 
+// For template rows the alias is locked and onAliasInput never fires.
+// Auto-link them to an existing TruthNode so that the same key shared across
+// projects reuses one node, not one per project.
+async function autoLinkTemplateRow(row: EditorRow) {
+  if (!row.isTemplate || !row.alias || !cmpId.value) return
+  try {
+    const results = await api.ssot.search(row.alias, cmpId.value, auth.token)
+    const exact = results.find(r => r.name.toLowerCase() === row.alias.toLowerCase())
+    if (exact) pickSearchResult(row, exact)
+  } catch { /* leave as isNew=true — backend will create a fresh node */ }
+}
+
 function parsePrimitive(s: string): string | number {
   const trimmed = s.trim()
   if (trimmed === '') return trimmed
@@ -352,6 +372,8 @@ function openEditor() {
   rows.value = publishedTemplateKeys.value.map(alias => makeTemplateRow({ alias } as ProjectTemplateKey))
   changeDescription.value = ''
   showEditor.value = true
+  // Auto-link template rows to existing TruthNodes for this company
+  rows.value.forEach(row => autoLinkTemplateRow(row))
 }
 
 async function submitConfig() {
@@ -844,8 +866,10 @@ async function submitConfig() {
                       :class="row.valueType === 'array' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-50'"
                       class="px-2 py-1.5 transition" title="Array">[ ]</button>
                   </div>
-                  <label v-if="row.valueType === 'primitive' && !row.isTemplate"
-                    class="flex items-center gap-1 text-xs text-slate-500 whitespace-nowrap cursor-pointer">
+                  <label v-if="!row.isTemplate"
+                    class="flex items-center gap-1 text-xs whitespace-nowrap cursor-pointer"
+                    :class="row.isNew ? 'text-blue-600 font-semibold' : 'text-slate-400'"
+                    title="Checked = force-create a new key even if one already exists">
                     <input type="checkbox" :checked="row.isNew" @change="toggleNew(row)" class="accent-blue-600" />
                     New
                   </label>
