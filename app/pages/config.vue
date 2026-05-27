@@ -234,6 +234,8 @@ interface EditorRow {
   valueShowDropdown: boolean
   valueSearchTimer: ReturnType<typeof setTimeout> | null
   linkedTruthName: string  // alias of the linked TruthNode ('' = same as alias or unlinked)
+  valueConflicts: ValueSearchResult[]  // exact-value matches from different TruthNodes
+  valueShowConflict: boolean           // whether to show the conflict prompt
 }
 
 const showEditor = ref(false)
@@ -250,7 +252,7 @@ function makeRow(): EditorRow {
     isNew: true, truthId: '', searchResults: [], showDropdown: false, searchTimer: null,
     isTemplate: false, sensitive: false,
     valueSearchResults: [], valueShowDropdown: false, valueSearchTimer: null,
-    linkedTruthName: '',
+    linkedTruthName: '', valueConflicts: [], valueShowConflict: false,
   }
 }
 
@@ -260,7 +262,7 @@ function makeTemplateRow(key: ProjectTemplateKey): EditorRow {
     isNew: true, truthId: '', searchResults: [], showDropdown: false, searchTimer: null,
     isTemplate: true, sensitive: false,
     valueSearchResults: [], valueShowDropdown: false, valueSearchTimer: null,
-    linkedTruthName: '',
+    linkedTruthName: '', valueConflicts: [], valueShowConflict: false,
   }
 }
 
@@ -313,14 +315,40 @@ function pickSearchResult(row: EditorRow, result: SearchResult) {
 function onValueInput(row: EditorRow) {
   if (row.valueType !== 'primitive') return
   if (row.valueSearchTimer) clearTimeout(row.valueSearchTimer)
+  // Reset conflict state whenever user edits the value
+  row.valueConflicts = []; row.valueShowConflict = false
   if (row.value.trim().length < 1) {
     row.valueSearchResults = []; row.valueShowDropdown = false; return
   }
   row.valueSearchTimer = setTimeout(async () => {
     try {
-      row.valueSearchResults = await api.ssot.searchByValue(row.value, row.alias, cmpId.value, auth.token)
-      row.valueShowDropdown = row.valueSearchResults.length > 0
-    } catch { row.valueSearchResults = []; row.valueShowDropdown = false }
+      const results = await api.ssot.searchByValue(row.value, row.alias, cmpId.value, auth.token)
+      const typed = row.value.trim()
+
+      // Separate exact matches (potential conflicts) from partial suggestions
+      const seen = new Set<string>()
+      const conflicts = results.filter(r => {
+        if (String(r.val) !== typed) return false      // not an exact value match
+        if (r.truth === row.truthId) return false      // already linked to this node
+        if (seen.has(r.truth)) return false            // dedup by TruthNode UUID
+        seen.add(r.truth)
+        return true
+      })
+
+      if (conflicts.length > 0) {
+        // Exact match found in another TruthNode — show conflict prompt, hide suggestions
+        row.valueConflicts = conflicts
+        row.valueShowConflict = true
+        row.valueSearchResults = []; row.valueShowDropdown = false
+      } else {
+        // No conflicts — show normal autocomplete suggestions
+        row.valueSearchResults = results
+        row.valueShowDropdown = results.length > 0
+      }
+    } catch {
+      row.valueSearchResults = []; row.valueShowDropdown = false
+      row.valueConflicts = []; row.valueShowConflict = false
+    }
   }, 300)
 }
 
@@ -329,9 +357,27 @@ function pickValueResult(row: EditorRow, result: ValueSearchResult) {
   row.valueShowDropdown = false
 }
 
+// Called when user clicks "Link" on a value conflict entry
+function linkFromValue(row: EditorRow, result: ValueSearchResult) {
+  row.truthId = result.truth
+  row.isNew = false
+  row.linkedTruthName = result.name
+  row.value = String(result.val)
+  row.valueConflicts = []; row.valueShowConflict = false
+}
+
+// Called when user clicks "Create new truth node instead"
+function dismissValueConflict(row: EditorRow) {
+  row.valueConflicts = []; row.valueShowConflict = false
+  // isNew stays true — a fresh TruthNode will be created on submit
+}
+
 function toggleNew(row: EditorRow) {
   row.isNew = !row.isNew
-  if (row.isNew) { row.truthId = ''; row.value = ''; row.linkedTruthName = '' }
+  if (row.isNew) {
+    row.truthId = ''; row.value = ''; row.linkedTruthName = ''
+    row.valueConflicts = []; row.valueShowConflict = false
+  }
   row.showDropdown = false
 }
 
@@ -860,6 +906,26 @@ async function submitConfig() {
                       <span class="text-slate-400 text-xs shrink-0">{{ r.name }} · {{ r.projectID }}</span>
                     </li>
                   </ul>
+                  <!-- Value conflict prompt — shown when typed value exactly matches an existing TruthNode -->
+                  <div v-if="row.valueShowConflict && !row.sensitive"
+                    class="mt-1 rounded-xl ring-1 ring-amber-200 bg-amber-50 p-2.5 text-xs space-y-1.5">
+                    <p class="font-semibold text-amber-700">⚠ Value already used in this company:</p>
+                    <div v-for="c in row.valueConflicts" :key="c.truth"
+                      class="flex items-center justify-between gap-2">
+                      <span class="text-slate-600 truncate">
+                        <span class="font-semibold">{{ c.name }}</span>
+                        <span class="text-slate-400"> · {{ c.projectID }}</span>
+                      </span>
+                      <button @mousedown.prevent="linkFromValue(row, c)"
+                        class="shrink-0 text-blue-600 font-semibold hover:underline">
+                        Link
+                      </button>
+                    </div>
+                    <button @mousedown.prevent="dismissValueConflict(row)"
+                      class="text-slate-400 hover:text-slate-600 pt-0.5">
+                      Create new truth node instead →
+                    </button>
+                  </div>
                 </div>
                 <span v-else
                   class="flex items-center px-3 py-2 text-sm text-slate-400 ring-1 ring-slate-200 rounded-xl bg-white shrink-0 font-mono">
