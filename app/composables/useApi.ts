@@ -9,6 +9,13 @@ export interface SearchResult {
   is_sensitive: boolean
 }
 
+export interface ValueSearchResult {
+  val: string | number
+  name: string        // alias of the key that holds this value
+  projectID: string
+  truth: string
+}
+
 export interface NodeResolveResponse {
   type: 'name' | 'value' | 'group'
   uuid: string
@@ -221,6 +228,11 @@ export function useApi() {
       search: (q: string, token: string) =>
         req<SearchResult[]>(
           `${BASE.ssot}/api/v1/search?q=${encodeURIComponent(q)}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        ),
+      searchByValue: (q: string, name: string, token: string) =>
+        req<ValueSearchResult[]>(
+          `${BASE.ssot}/api/v1/search/value?q=${encodeURIComponent(q)}&name=${encodeURIComponent(name)}`,
           { headers: { Authorization: `Bearer ${token}` } },
         ),
       resolveNode: (uuid: string, token: string) =>

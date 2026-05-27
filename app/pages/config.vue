@@ -8,6 +8,7 @@ import type {
   ProjectTemplateVersion,
   SearchResult,
   SsotConfigEntry,
+  ValueSearchResult,
 } from '~/composables/useApi'
 
 definePageMeta({ middleware: 'auth' })
@@ -229,6 +230,9 @@ interface EditorRow {
   searchTimer: ReturnType<typeof setTimeout> | null
   isTemplate: boolean  // locked row from project template — alias/key not editable
   sensitive: boolean   // mark value as sensitive — masked in snapshot view
+  valueSearchResults: ValueSearchResult[]
+  valueShowDropdown: boolean
+  valueSearchTimer: ReturnType<typeof setTimeout> | null
 }
 
 const showEditor = ref(false)
@@ -244,6 +248,7 @@ function makeRow(): EditorRow {
     id: rowIdCounter++, alias: '', valueType: 'primitive', value: '', children: [],
     isNew: true, truthId: '', searchResults: [], showDropdown: false, searchTimer: null,
     isTemplate: false, sensitive: false,
+    valueSearchResults: [], valueShowDropdown: false, valueSearchTimer: null,
   }
 }
 
@@ -252,6 +257,7 @@ function makeTemplateRow(key: ProjectTemplateKey): EditorRow {
     id: rowIdCounter++, alias: key.alias, valueType: 'primitive', value: '', children: [],
     isNew: true, truthId: '', searchResults: [], showDropdown: false, searchTimer: null,
     isTemplate: true, sensitive: false,
+    valueSearchResults: [], valueShowDropdown: false, valueSearchTimer: null,
   }
 }
 
@@ -288,6 +294,25 @@ function pickSearchResult(row: EditorRow, result: SearchResult) {
   row.isNew = false
   row.showDropdown = false
   row.sensitive = result.is_sensitive ?? false
+}
+
+function onValueInput(row: EditorRow) {
+  if (row.valueType !== 'primitive') return
+  if (row.valueSearchTimer) clearTimeout(row.valueSearchTimer)
+  if (row.value.trim().length < 1) {
+    row.valueSearchResults = []; row.valueShowDropdown = false; return
+  }
+  row.valueSearchTimer = setTimeout(async () => {
+    try {
+      row.valueSearchResults = await api.ssot.searchByValue(row.value, row.alias, auth.token)
+      row.valueShowDropdown = row.valueSearchResults.length > 0
+    } catch { row.valueSearchResults = []; row.valueShowDropdown = false }
+  }, 300)
+}
+
+function pickValueResult(row: EditorRow, result: ValueSearchResult) {
+  row.value = String(result.val)
+  row.valueShowDropdown = false
 }
 
 function toggleNew(row: EditorRow) {
@@ -780,14 +805,29 @@ async function submitConfig() {
                     </ul>
                   </template>
                 </div>
-                <input v-if="row.valueType === 'primitive'" v-model="row.value"
-                  :type="row.sensitive ? 'password' : 'text'"
-                  :placeholder="row.isTemplate ? `Enter value for ${row.alias}` : 'Value'"
-                  :class="[
-                    row.isTemplate ? 'ring-blue-300 focus:ring-blue-500' : 'ring-slate-200 focus:ring-blue-500',
-                    row.sensitive ? 'bg-amber-50/40' : 'bg-white',
-                  ]"
-                  class="flex-1 min-w-0 ring-1 rounded-xl px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 transition" />
+                <!-- Value input with autocomplete suggestions -->
+                <div v-if="row.valueType === 'primitive'" class="relative flex-1 min-w-0">
+                  <input v-model="row.value"
+                    @input="onValueInput(row)"
+                    @blur="row.valueShowDropdown = false"
+                    :type="row.sensitive ? 'password' : 'text'"
+                    :placeholder="row.isTemplate ? `Enter value for ${row.alias}` : 'Value'"
+                    :class="[
+                      row.isTemplate ? 'ring-blue-300 focus:ring-blue-500' : 'ring-slate-200 focus:ring-blue-500',
+                      row.sensitive ? 'bg-amber-50/40' : 'bg-white',
+                    ]"
+                    class="w-full ring-1 rounded-xl px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 transition" />
+                  <!-- Value suggestions dropdown (suppressed for sensitive rows) -->
+                  <ul v-if="row.valueShowDropdown && !row.sensitive"
+                    class="absolute z-10 left-0 right-0 mt-1 bg-white ring-1 ring-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    <li v-for="r in row.valueSearchResults" :key="r.truth"
+                      @mousedown.prevent="pickValueResult(row, r)"
+                      class="px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 flex justify-between gap-2">
+                      <span class="font-mono text-slate-800">{{ r.val }}</span>
+                      <span class="text-slate-400 text-xs shrink-0">{{ r.name }} · {{ r.projectID }}</span>
+                    </li>
+                  </ul>
+                </div>
                 <span v-else
                   class="flex items-center px-3 py-2 text-sm text-slate-400 ring-1 ring-slate-200 rounded-xl bg-white shrink-0 font-mono">
                   {{ row.valueType === 'object' ? '{ }' : '[ ]' }}
