@@ -67,22 +67,152 @@ const isProjectCreator = ref(false)
 const templateVersions = ref<ProjectTemplateVersion[]>([])
 const publishedTemplateKeys = ref<string[]>([])
 const publishedTemplateVersionUuid = ref<string | null>(null)
+const templateDraftName = ref('')
+const templateDraftMode = ref<'new' | 'import' | 'edit'>('new')
+const templateDraftSourceVersionUuid = ref<string | null>(null)
+const templateDraftBackupAliases = ref<string[] | null>(null)
+const templateDraftBackupName = ref('')
+const templateDraftBusy = ref(false)
 const publishing = ref(false)
 const publishError = ref('')
+
+function templateVersionLabel(version: ProjectTemplateVersion): string {
+  return version.template_name?.trim() || `Template v${version.version_number}`
+}
+
+function snapshotTemplateDraft() {
+  templateDraftBackupAliases.value = projectTemplate.value.map(key => key.alias)
+  templateDraftBackupName.value = templateDraftName.value
+}
+
+function clearTemplateDraftState() {
+  templateDraftMode.value = 'new'
+  templateDraftSourceVersionUuid.value = null
+  templateDraftBackupAliases.value = null
+  templateDraftBackupName.value = ''
+}
+
+async function replaceTemplateDraftAliases(aliases: string[]) {
+  if (!projId.value) return
+  const currentAliases = projectTemplate.value.map(key => key.alias)
+  const sameShape = currentAliases.length === aliases.length && currentAliases.every((alias, index) => alias === aliases[index])
+  if (sameShape) return
+
+  for (const key of [...projectTemplate.value]) {
+    await api.projects.removeTemplateKey(projId.value, key.uuid, auth.token)
+  }
+
+  const nextKeys: ProjectTemplateKey[] = []
+  for (const [index, alias] of aliases.entries()) {
+    const key = await api.projects.addTemplateKey(projId.value, { alias, position: index }, auth.token)
+    nextKeys.push(key)
+  }
+  projectTemplate.value = nextKeys
+}
+
+async function loadTemplateDraftFromVersion(version: ProjectTemplateVersion, mode: 'import' | 'edit') {
+  if (!projId.value) return
+  templateDraftBusy.value = true
+  publishError.value = ''
+  templateAddError.value = ''
+  snapshotTemplateDraft()
+  templateDraftMode.value = mode
+  templateDraftSourceVersionUuid.value = version.uuid
+  templateDraftName.value = mode === 'edit'
+    ? (version.template_name?.trim() || '')
+    : (version.template_name?.trim() ? `${version.template_name.trim()} copy` : '')
+  try {
+    await replaceTemplateDraftAliases(version.keys)
+  } catch (e: unknown) {
+    publishError.value = e instanceof Error ? e.message : 'Failed to load template version'
+    if (templateDraftBackupAliases.value) {
+      try {
+        await replaceTemplateDraftAliases(templateDraftBackupAliases.value)
+        templateDraftName.value = templateDraftBackupName.value
+      } catch { /* keep current draft state */ }
+    }
+    clearTemplateDraftState()
+  } finally {
+    templateDraftBusy.value = false
+  }
+}
+
+async function cancelTemplateDraft() {
+  if (!templateDraftBackupAliases.value) {
+    clearTemplateDraftState()
+    return
+  }
+  templateDraftBusy.value = true
+  try {
+    await replaceTemplateDraftAliases(templateDraftBackupAliases.value)
+    templateDraftName.value = templateDraftBackupName.value
+  } catch (e: unknown) {
+    publishError.value = e instanceof Error ? e.message : 'Failed to cancel template edit'
+  } finally {
+    clearTemplateDraftState()
+    templateDraftBusy.value = false
+  }
+}
+
+const templateCardIsEditing = computed(() => templateDraftMode.value === 'edit')
+const templateCardTitle = computed(() => templateCardIsEditing.value ? 'Required Config Keys' : 'Required Config Keys')
+const templateCardSubtitle = computed(() => templateCardIsEditing.value
+  ? `Editing published template: ${templateDraftName.value.trim() || 'untitled'}`
+  : 'Every company in this project must fill these keys when creating a config snapshot.')
 
 async function publishTemplate() {
   publishError.value = ''
   publishing.value = true
   try {
-    const v = await api.projects.publishTemplate(projId.value, auth.token)
+    const templateName = templateDraftName.value.trim()
+    if (!templateName) {
+      publishError.value = 'Please name this template before publishing.'
+      return
+    }
+    const v = await api.projects.publishTemplate(projId.value, { template_name: templateName }, auth.token)
     templateVersions.value.unshift(v)
     templateVersions.value.forEach((tv, i) => { tv.latest = i === 0 })
     publishedTemplateKeys.value = v.keys
     publishedTemplateVersionUuid.value = v.uuid
+    templateDraftMode.value = 'new'
+    templateDraftSourceVersionUuid.value = null
+    templateDraftBackupAliases.value = null
+    templateDraftBackupName.value = ''
+    templateDraftName.value = v.template_name ?? ''
   } catch (e: unknown) {
     publishError.value = e instanceof Error ? e.message : 'Failed to publish'
   } finally {
     publishing.value = false
+  }
+}
+
+async function importTemplateVersion(version: ProjectTemplateVersion) {
+  if (!confirm(`Import ${templateVersionLabel(version)} into the current draft? This will replace the existing template keys.`)) return
+  await loadTemplateDraftFromVersion(version, 'import')
+}
+
+async function editTemplateVersion(version: ProjectTemplateVersion) {
+  await loadTemplateDraftFromVersion(version, 'edit')
+}
+
+async function applyTemplateVersion(version: ProjectTemplateVersion) {
+  if (version.latest) return
+  if (!confirm(`Apply ${templateVersionLabel(version)} as the active template for this project?`)) return
+  templateDraftBusy.value = true
+  publishError.value = ''
+  try {
+    await api.projects.applyTemplateVersion(projId.value, version.uuid, auth.token)
+    await replaceTemplateDraftAliases(version.keys)
+    await loadLevel1()
+    templateDraftMode.value = 'new'
+    templateDraftSourceVersionUuid.value = null
+    templateDraftBackupAliases.value = null
+    templateDraftBackupName.value = ''
+    templateDraftName.value = version.template_name?.trim() || ''
+  } catch (e: unknown) {
+    publishError.value = e instanceof Error ? e.message : 'Failed to apply template version'
+  } finally {
+    templateDraftBusy.value = false
   }
 }
 
@@ -153,6 +283,10 @@ async function loadLevel1() {
     publishedTemplateKeys.value = pubKeys.keys
     publishedTemplateVersionUuid.value = pubKeys.version_uuid
     isProjectCreator.value = !!project && project.created_by === userName.value
+    if (templateDraftMode.value === 'new') {
+      const activeVersion = versions.find(v => v.uuid === pubKeys.version_uuid) ?? versions.find(v => v.latest) ?? null
+      templateDraftName.value = activeVersion?.template_name?.trim() || templateDraftName.value
+    }
   } finally {
     level1Loading.value = false
   }
@@ -628,78 +762,151 @@ async function submitConfig() {
 
           <!-- ── Template tab ── -->
           <template v-if="activeTab === 'template'">
-            <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
-              <div class="px-5 py-4 border-b border-slate-50 flex items-center justify-between gap-3">
-                <div>
-                  <h2 class="font-semibold text-slate-900 text-sm">Required Config Keys</h2>
-                  <p class="text-xs text-slate-400 mt-0.5">Every company in this project must fill these keys when creating a config snapshot.</p>
-                </div>
-              </div>
-
-              <!-- Template key list -->
-              <div v-if="projectTemplate.length > 0" class="divide-y divide-slate-50">
-                <div v-for="key in projectTemplate" :key="key.uuid"
-                  class="flex items-center gap-3 px-5 py-3">
-                  <div class="flex-1 min-w-0">
-                    <p class="text-sm font-semibold text-slate-800">{{ key.alias }}</p>
-                    <p class="font-mono text-xs text-slate-400 mt-0.5">{{ key.name_node_uuid }}</p>
+            <div class="overflow-hidden rounded-2xl" :class="templateCardIsEditing ? 'bg-blue-50/60 ring-2 ring-blue-200' : 'bg-white ring-1 ring-slate-900/5'">
+              <div class="px-5 py-4 border-b" :class="templateCardIsEditing ? 'border-blue-100' : 'border-slate-50'">
+                <div class="space-y-3">
+                  <div class="flex items-start justify-between gap-3 flex-wrap">
+                    <div class="min-w-0">
+                      <h2 class="font-semibold text-sm" :class="templateCardIsEditing ? 'text-blue-800' : 'text-slate-900'">{{ templateCardTitle }}</h2>
+                      <p class="text-xs mt-0.5" :class="templateCardIsEditing ? 'text-blue-700/80' : 'text-slate-400'">{{ templateCardSubtitle }}</p>
+                    </div>
+                    <div v-if="templateDraftMode !== 'new'" class="flex items-center gap-2 shrink-0">
+                      <span class="rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide" :class="templateDraftMode === 'edit' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'">
+                        {{ templateDraftMode === 'edit' ? 'editing' : 'draft' }}
+                      </span>
+                      <button
+                        @click="cancelTemplateDraft"
+                        :disabled="templateDraftBusy"
+                        class="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-500 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-slate-700 disabled:opacity-40">
+                        Cancel modification
+                      </button>
+                    </div>
                   </div>
-                  <button v-if="isProjectCreator"
-                    @click="removeTemplateKey(key)"
-                    class="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition shrink-0">×</button>
+
+                  
                 </div>
-              </div>
-              <div v-else class="px-5 py-8 text-center text-sm text-slate-400">
-                No required keys yet.
               </div>
 
-              <!-- Add key (creator only) -->
-              <div v-if="isProjectCreator" class="border-t border-slate-50 px-5 py-4 space-y-2">
-                <p class="text-xs font-semibold text-slate-500">Add required key</p>
-                <div class="flex gap-2">
-                  <input
-                    v-model="templateSearch"
-                    @keydown.enter.prevent="addTemplateKeyByName"
-                    type="text"
-                    placeholder="e.g. phone, address, contact_email"
-                    class="flex-1 ring-1 ring-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
-                  <button
-                    @click="addTemplateKeyByName"
-                    :disabled="!templateSearch.trim() || templateAdding"
-                    class="bg-blue-600 text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-blue-700 transition disabled:opacity-40">
-                    {{ templateAdding ? '…' : 'Add' }}
-                  </button>
+              <div class="px-5 py-5 border-t border-slate-100 space-y-4" :class="templateCardIsEditing ? 'bg-blue-50/20' : 'bg-slate-50/30'">
+                <div class="flex items-center justify-between gap-2 flex-wrap">
+                    <div class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wide" :class="templateCardIsEditing ? 'text-blue-700' : 'text-slate-500'">Template name</label>
+                        <div class="text-xs mt-1" :class="templateCardIsEditing ? 'text-blue-700/75' : 'text-slate-400'"> {{ templateDraftMode === 'edit' ? 'Changes are saved as a modified version of the published template.' : 'Use this name when publishing the current draft.' }}</div>
+                      <input
+                        v-model="templateDraftName"
+                        type="text"
+                        :disabled="templateDraftBusy"
+                        placeholder="Name this template"
+                        class="mt-1 w-full rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 transition"
+                        :class="templateCardIsEditing
+                          ? 'bg-white ring-1 ring-blue-200 placeholder:text-blue-300 focus:ring-blue-500'
+                          : 'bg-white ring-1 ring-slate-200 placeholder:text-slate-400 focus:ring-blue-500'" />
+                    </div>
+                  </div>
                 </div>
-                <div v-if="templateAddError" class="text-sm text-red-600">{{ templateAddError }}</div>
+
+                <!-- Add key (creator only) -->
+                <div v-if="isProjectCreator" class="space-y-3">
+                  <div class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                    <div>
+                      <label class="text-xs font-semibold uppercase tracking-wide" :class="templateCardIsEditing ? 'text-blue-700' : 'text-slate-500'">Add required key</label>
+                      <p class="text-xs mt-1" :class="templateCardIsEditing ? 'text-blue-700/75' : 'text-slate-400'">Enter a key name to add it to the required config keys list.</p>
+                    </div>
+                    <span class="text-xs font-semibold" :class="templateCardIsEditing ? 'text-blue-700' : 'text-slate-500'">{{ projectTemplate.length }} key{{ projectTemplate.length === 1 ? '' : 's' }}</span>
+                  </div>
+                  <div class="grid gap-2 sm:grid-cols-[1fr_auto]">
+                    <input
+                      v-model="templateSearch"
+                      @keydown.enter.prevent="addTemplateKeyByName"
+                      :disabled="templateDraftBusy || templateAdding || publishing"
+                      type="text"
+                      placeholder="e.g. phone, address, contact_email"
+                      class="w-full ring-1 ring-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+                    <button
+                      @click="addTemplateKeyByName"
+                      :disabled="!templateSearch.trim() || templateAdding || templateDraftBusy || publishing"
+                      class="bg-blue-600 text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-blue-700 transition disabled:opacity-40 whitespace-nowrap">
+                      {{ templateAdding ? '…' : 'Add' }}
+                    </button>
+                  </div>
+                  <div v-if="templateAddError" class="text-sm text-red-600">{{ templateAddError }}</div>
+                </div>
+
+                <!-- Template key list -->
+                <div class="rounded-xl bg-white ring-1 ring-slate-200 overflow-hidden">
+                  <div v-if="projectTemplate.length > 0" class="divide-y divide-slate-100">
+                    <div v-for="key in projectTemplate" :key="key.uuid"
+                      class="flex items-center gap-3 px-4 py-3">
+                      <div class="flex-1 min-w-0">
+                        <p class="text-sm font-semibold text-slate-800">{{ key.alias }}</p>
+                        <p class="font-mono text-xs text-slate-400 mt-0.5">{{ key.name_node_uuid }}</p>
+                      </div>
+                      <button v-if="isProjectCreator"
+                        @click="removeTemplateKey(key)"
+                        class="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition shrink-0">×</button>
+                    </div>
+                  </div>
+                  <div v-else class="px-4 py-8 text-center text-sm text-slate-400">
+                    No required keys yet.
+                  </div>
+                </div>
               </div>
 
               <!-- Publish button (creator only) -->
-              <div v-if="isProjectCreator" class="border-t border-slate-100 px-5 py-4 flex items-center gap-3">
+              <div v-if="isProjectCreator" class="border-t border-slate-100 px-5 py-4 flex items-center gap-3 flex-wrap">
                 <button
                   @click="publishTemplate"
-                  :disabled="publishing || projectTemplate.length === 0"
-                  class="bg-emerald-600 text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-emerald-700 transition disabled:opacity-40">
-                  {{ publishing ? 'Publishing…' : '↑ Publish new version' }}
+                  :disabled="publishing || templateDraftBusy || projectTemplate.length === 0"
+                  class="rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40"
+                  :class="templateDraftMode === 'edit'
+                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-700'">
+                  {{ publishing ? (templateDraftMode === 'edit' ? 'Publishing modified version…' : 'Publishing…') : (templateDraftMode === 'edit' ? 'Publish modified version' : 'Publish new version') }}
                 </button>
-                <span class="text-xs text-slate-400">Companies use the latest published version</span>
+                <span class="text-xs text-slate-400">{{ templateDraftMode === 'edit' ? 'Save changes to update this published template.' : 'Publish the current draft as a new version.' }}</span>
                 <div v-if="publishError" class="text-sm text-red-600">{{ publishError }}</div>
               </div>
             </div>
 
-            <!-- Published version history -->
+            <!-- Published templates -->
             <div v-if="templateVersions.length > 0" class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
               <div class="px-5 py-3 border-b border-slate-50">
-                <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Published Versions</h3>
+                <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Published Templates</h3>
               </div>
               <div class="divide-y divide-slate-50">
                 <div v-for="v in templateVersions" :key="v.uuid"
-                  class="px-5 py-3 flex items-center gap-3">
-                  <span class="text-sm font-bold text-slate-700 shrink-0 w-8">v{{ v.version_number }}</span>
-                  <span v-if="v.latest"
-                    class="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide shrink-0">Latest</span>
-                  <div class="flex-1 min-w-0">
-                    <p class="text-xs text-slate-500">{{ formatDate(v.date_created) }} · {{ v.created_by }}</p>
+                  class="px-5 py-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="text-sm font-bold text-slate-700 shrink-0">v{{ v.version_number }}</span>
+                      <span v-if="v.latest"
+                        class="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide shrink-0">(in use)</span>
+                    </div>
+                    <p class="text-sm font-semibold text-slate-900 mt-1 truncate">{{ templateVersionLabel(v) }}</p>
+                    <p class="text-xs text-slate-500 mt-0.5">{{ formatDate(v.date_created) }} · {{ v.created_by }}</p>
                     <p class="text-xs text-slate-400 truncate mt-0.5">{{ v.keys.join(', ') || '(empty)' }}</p>
+                  </div>
+                  <div v-if="isProjectCreator" class="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      @click="importTemplateVersion(v)"
+                      :disabled="templateDraftBusy || publishing"
+                      class="rounded-xl px-3 py-2 text-xs font-semibold text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-slate-800 disabled:opacity-40">
+                      Import
+                    </button>
+                    <button
+                      @click="editTemplateVersion(v)"
+                      :disabled="templateDraftBusy || publishing"
+                      class="rounded-xl px-3 py-2 text-xs font-semibold text-blue-700 ring-1 ring-blue-200 bg-blue-50 transition hover:bg-blue-100 disabled:opacity-40">
+                      Modify
+                    </button>
+                    <button
+                      @click="applyTemplateVersion(v)"
+                      :disabled="v.latest || templateDraftBusy || publishing"
+                      class="rounded-xl px-3 py-2 text-xs font-semibold text-white transition disabled:opacity-40"
+                      :class="v.latest ? 'bg-slate-300' : 'bg-emerald-600 hover:bg-emerald-700'">
+                      Apply
+                    </button>
                   </div>
                 </div>
               </div>

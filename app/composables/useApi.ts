@@ -157,6 +157,7 @@ export interface ProjectTemplateVersion {
   uuid: string
   proj_id: string
   version_number: number
+  template_name: string | null
   latest: boolean
   created_by: string
   date_created: string
@@ -381,10 +382,15 @@ export function useApi() {
           `${BASE.config}/api/v1/projects/${encodeURIComponent(projId)}/template/versions`,
           { headers: { Authorization: `Bearer ${token}` } },
         ),
-      publishTemplate: (projId: string, token: string) =>
+      publishTemplate: (projId: string, payload: { template_name?: string | null } | null, token: string) =>
         req<ProjectTemplateVersion>(
           `${BASE.config}/api/v1/projects/${encodeURIComponent(projId)}/template/publish`,
-          { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+          { method: "POST", body: JSON.stringify(payload ?? {}), headers: { Authorization: `Bearer ${token}` } },
+        ),
+      applyTemplateVersion: (projId: string, versionUuid: string, token: string) =>
+        req<ProjectTemplateVersion>(
+          `${BASE.config}/api/v1/projects/${encodeURIComponent(projId)}/template/versions/${encodeURIComponent(versionUuid)}/apply`,
+          { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
         ),
       getPublishedTemplateKeys: (projId: string, token: string) =>
         req<PublishedTemplateKeysResponse>(
