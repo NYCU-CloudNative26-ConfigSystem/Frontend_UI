@@ -7,20 +7,14 @@ const auth = useAuthStore()
 const statuses = ref<Record<string, 'ok' | 'error' | 'checking'>>({
   login: 'checking',
   config: 'checking',
-  export: 'checking',
   ssot: 'checking',
-  template: 'checking',
-  version: 'checking',
 })
 
 async function checkHealth() {
   const checks: [string, () => Promise<{ status: string }>][] = [
     ['login', api.health.login],
     ['config', api.health.config],
-    ['export', api.health.export],
     ['ssot', api.health.ssot],
-    ['template', api.health.template],
-    ['version', api.health.version],
   ]
   for (const [key, fn] of checks) {
     statuses.value[key] = 'checking'
