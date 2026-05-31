@@ -20,6 +20,7 @@ export interface NodeResolveResponse {
   type: 'name' | 'value' | 'group'
   uuid: string
   name_val?: string
+  truthId?: string
   val?: string | number
   is_sensitive?: boolean
   isArray?: boolean
@@ -72,6 +73,9 @@ export interface ConfigReadResponse {
   created_by?: string | null
   is_latest?: boolean | null
   change_description?: string | null
+  promoted_from_uuid?: string | null
+  proj_id?: string | null
+  cmp_id?: string | null
 }
 
 export interface ConfigWriteEntry {
@@ -88,6 +92,7 @@ export interface ConfigWritePayload {
   entries: ConfigWriteEntry[]
   template_version_uuid?: string
   change_description?: string
+  source_snapshot_uuid?: string
 }
 
 export interface ConfigHistoryItem {
@@ -105,6 +110,7 @@ export interface ConfigHistoryItem {
   approved_at: string | null
   rejection_reason: string | null
   change_description: string | null
+  promoted_from_uuid?: string | null
 }
 
 export interface ExportDownloadPayload {

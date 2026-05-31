@@ -10,10 +10,10 @@ const router = useRouter()
 
 const uuid = computed(() => route.params.uuid as string)
 
-// Context passed via query params from config.vue
-const projId = computed(() => route.query.proj as string ?? '')
-const cmpId = computed(() => route.query.cmp as string ?? '')
-const envId = computed(() => route.query.env as string ?? '')
+// Context — seeded from query params, overridden with API values on mount
+const projId = ref(route.query.proj as string ?? '')
+const cmpId = ref(route.query.cmp as string ?? '')
+const envId = ref(route.query.env as string ?? '')
 const createdBy = ref(route.query.created_by as string || '')
 const tmplVersion = computed(() => route.query.tmpl_v ? Number(route.query.tmpl_v) : null)
 const isLatest = ref(route.query.is_latest === '1')
@@ -64,6 +64,14 @@ const resolvedValues = ref<Record<string, string>>({})
 const resolvedSensitive = ref<Record<string, boolean>>({})
 const revealedValues = ref(new Set<string>())
 
+// Lineage diff state
+interface DiffEntry { alias: string; type: 'changed' | 'added' | 'removed'; oldVal: string | null; newVal: string | null }
+const diffEntries = ref<DiffEntry[]>([])
+const diffUnchangedCount = ref(0)
+const diffLoading = ref(false)
+const diffError = ref('')
+const sourceEnvironment = ref<string | null>(null)
+
 function toggleReveal(valRef: string) {
   const s = new Set(revealedValues.value)
   if (s.has(valRef)) s.delete(valRef)
@@ -92,6 +100,59 @@ async function resolveNodeToDisplay(nodeUuid: string, depth = 0): Promise<string
     return node.isArray ? `[ ${parts.join(', ')} ]` : `{ ${parts.join(', ')} }`
   }
   return nodeUuid
+}
+
+async function resolveValDisplay(valRef: string): Promise<string> {
+  const stripped = stripRef(valRef)
+  const node = await api.ssot.resolveNode(stripped, auth.token).catch(() => null)
+  if (!node) return valRef
+  if (node.type === 'value') return node.is_sensitive ? '(sensitive)' : String(node.val ?? '')
+  if (node.type === 'group') return await resolveNodeToDisplay(stripped, 0)
+  return valRef
+}
+
+async function loadDiff() {
+  if (!config.value?.promoted_from_uuid) return
+  diffLoading.value = true
+  diffError.value = ''
+  try {
+    const source = await api.configTable.getByUuid(config.value.promoted_from_uuid, auth.token)
+    sourceEnvironment.value = source?.environment ?? null
+
+    const currentMap = new Map<string, string>()
+    const sourceMap = new Map<string, string>()
+    for (const row of config.value.rows) currentMap.set(row.key, row.val)
+    for (const row of (source?.rows ?? [])) sourceMap.set(row.key, row.val)
+
+    const allKeys = new Set([...currentMap.keys(), ...sourceMap.keys()])
+    const entries: DiffEntry[] = []
+    let unchanged = 0
+
+    for (const key of allKeys) {
+      const curVal = currentMap.get(key)
+      const srcVal = sourceMap.get(key)
+      const nameNode = await api.ssot.resolveNode(key, auth.token).catch(() => null)
+      const alias = nameNode?.name_val ?? key
+
+      if (curVal === undefined) {
+        entries.push({ alias, type: 'removed', oldVal: await resolveValDisplay(srcVal!), newVal: null })
+      } else if (srcVal === undefined) {
+        entries.push({ alias, type: 'added', oldVal: null, newVal: await resolveValDisplay(curVal) })
+      } else if (curVal !== srcVal) {
+        const [oldDisplay, newDisplay] = await Promise.all([resolveValDisplay(srcVal), resolveValDisplay(curVal)])
+        entries.push({ alias, type: 'changed', oldVal: oldDisplay, newVal: newDisplay })
+      } else {
+        unchanged++
+      }
+    }
+
+    diffEntries.value = entries
+    diffUnchangedCount.value = unchanged
+  } catch (e: unknown) {
+    diffError.value = e instanceof Error ? e.message : 'Failed to load diff'
+  } finally {
+    diffLoading.value = false
+  }
 }
 
 async function resolveRows(cfg: ConfigReadResponse) {
@@ -132,7 +193,11 @@ onMounted(async () => {
     if (cfg.created_by != null) createdBy.value = cfg.created_by
     if (cfg.is_latest != null) isLatest.value = cfg.is_latest
     if (cfg.change_description != null) changeDescription.value = cfg.change_description
+    if (cfg.proj_id) projId.value = cfg.proj_id
+    if (cfg.cmp_id) cmpId.value = cfg.cmp_id
+    if (cfg.environment) envId.value = cfg.environment
     await resolveRows(config.value)
+    if (config.value.promoted_from_uuid) loadDiff()
   } catch (e: unknown) {
     loadError.value = e instanceof Error ? e.message : 'Failed to load snapshot'
   } finally {
@@ -317,6 +382,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Reason for change</p>
             <p class="text-sm text-slate-700 whitespace-pre-wrap">{{ changeDescription }}</p>
           </div>
+          <div v-if="config.promoted_from_uuid" class="border-t border-slate-50 px-5 py-4">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Derived from</p>
+            <NuxtLink
+              :to="`/config-snapshot/${config.promoted_from_uuid}?proj=${projId}&cmp=${cmpId}&env=${sourceEnvironment ?? ''}`"
+              class="text-sm text-blue-600 hover:text-blue-700 transition inline-flex items-center gap-1">
+              <span v-if="sourceEnvironment" class="capitalize font-semibold">{{ sourceEnvironment }}</span>
+              <span class="font-mono text-xs break-all text-blue-500">{{ config.promoted_from_uuid }}</span>
+              <span>→</span>
+            </NuxtLink>
+          </div>
         </div>
 
         <!-- Key/value table -->
@@ -446,6 +521,71 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </p>
             </div>
           </template>
+        </div>
+
+        <!-- Lineage diff -->
+        <div v-if="config.promoted_from_uuid" class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
+          <div class="px-5 py-4 border-b border-slate-50 flex items-center justify-between gap-4">
+            <h3 class="font-semibold text-slate-900 text-sm">Changes from source</h3>
+            <NuxtLink v-if="sourceEnvironment"
+              :to="`/config-snapshot/${config.promoted_from_uuid}?proj=${projId}&cmp=${cmpId}&env=${sourceEnvironment}`"
+              class="text-xs font-medium text-blue-600 hover:text-blue-700 transition capitalize shrink-0">
+              ← {{ sourceEnvironment }} snapshot
+            </NuxtLink>
+          </div>
+          <div v-if="diffLoading" class="px-5 py-6 text-sm text-slate-400 text-center">Loading diff…</div>
+          <div v-else-if="diffError" class="px-5 py-4 text-sm text-red-600">{{ diffError }}</div>
+          <div v-else>
+            <div v-if="diffEntries.length === 0"
+              class="px-5 py-4 text-sm text-slate-500">
+              No changes — {{ diffUnchangedCount }} {{ diffUnchangedCount === 1 ? 'key' : 'keys' }} unchanged.
+            </div>
+            <div v-else class="overflow-x-auto">
+              <table class="w-full text-xs sm:text-sm">
+                <thead>
+                  <tr class="text-left border-b border-slate-50">
+                    <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Key</th>
+                    <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Old value</th>
+                    <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">New value</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-50">
+                  <tr v-for="entry in diffEntries" :key="entry.alias" class="hover:bg-slate-50/50">
+                    <td class="px-5 py-3 font-semibold text-slate-800">{{ entry.alias }}</td>
+                    <td class="px-5 py-3 font-mono text-xs text-slate-500">
+                      <span v-if="entry.oldVal !== null">{{ entry.oldVal }}</span>
+                      <span v-else class="text-slate-300 italic">—</span>
+                    </td>
+                    <td class="px-5 py-3 font-mono text-xs">
+                      <span v-if="entry.type === 'removed'" class="text-red-500 italic">removed</span>
+                      <span v-else-if="entry.newVal !== null" :class="{
+                        'text-emerald-600': entry.type === 'added',
+                        'text-blue-600': entry.type === 'changed',
+                      }">{{ entry.newVal }}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="diffUnchangedCount > 0" class="px-5 py-3 text-xs text-slate-400 border-t border-slate-50">
+                {{ diffUnchangedCount }} {{ diffUnchangedCount === 1 ? 'key' : 'keys' }} unchanged
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Edit action (approved snapshots only) -->
+        <div v-if="localApprovalStatus === 'approved'" class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h3 class="font-semibold text-slate-900 text-sm">Edit config</h3>
+              <p class="text-xs text-slate-400 mt-0.5">Pre-populate the editor with this snapshot's values</p>
+            </div>
+            <button
+              @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId, env: config.environment, from: uuid } })"
+              class="rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold ring-1 ring-blue-200 text-blue-600 hover:bg-blue-50 transition shrink-0">
+              Edit
+            </button>
+          </div>
         </div>
 
         <!-- Promote action -->

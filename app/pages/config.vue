@@ -133,6 +133,9 @@ onMounted(async () => {
     envId.value = route.query.env as string
     await loadHistory()
   }
+  if (route.query.from) {
+    await loadFromSnapshot(route.query.from as string)
+  }
 })
 
 async function loadLevel1() {
@@ -502,6 +505,39 @@ function openEditor() {
   rows.value.forEach(row => autoLinkTemplateRow(row))
 }
 
+async function loadFromSnapshot(fromUuid: string) {
+  const snapshot = await api.configTable.getByUuid(fromUuid, auth.token).catch(() => null)
+  if (!snapshot) return
+
+  const newRows: EditorRow[] = []
+  for (const ctRow of snapshot.rows) {
+    const nameNode = await api.ssot.resolveNode(ctRow.key, auth.token).catch(() => null)
+    const alias = nameNode?.name_val ?? ctRow.key
+    const truthId = nameNode?.truthId ?? ''
+
+    const isTemplate = publishedTemplateKeys.value.includes(alias)
+    const row = makeRow()
+    row.alias = alias
+    row.isNew = !truthId
+    row.truthId = truthId
+    row.isTemplate = isTemplate
+
+    if (ctRow.val.startsWith('VALUE:')) {
+      const valueNode = await api.ssot.resolveNode(ctRow.val.slice(6), auth.token).catch(() => null)
+      row.sensitive = valueNode?.is_sensitive ?? false
+      row.value = row.sensitive ? '' : String(valueNode?.val ?? '')
+    } else if (ctRow.val.startsWith('GROUP:')) {
+      await hydrateGroupChildren(row, ctRow.val.slice(6))
+    }
+
+    newRows.push(row)
+  }
+
+  rows.value = newRows
+  changeDescription.value = ''
+  showEditor.value = true
+}
+
 async function submitConfig() {
   submitError.value = ''
   submitSuccess.value = false
@@ -537,6 +573,7 @@ async function submitConfig() {
       })),
       template_version_uuid: publishedTemplateVersionUuid.value ?? undefined,
       change_description: changeDescription.value.trim() || undefined,
+      source_snapshot_uuid: (route.query.from as string) || undefined,
     }, auth.token)
 
     submitSuccess.value = true
