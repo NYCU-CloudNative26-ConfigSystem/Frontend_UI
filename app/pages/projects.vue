@@ -120,6 +120,7 @@ function modeLabel(m: DisplayMode) {
 }
 </script>
 
+
 <template>
   <div class="min-h-screen bg-slate-50">
     <nav class="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-slate-100">

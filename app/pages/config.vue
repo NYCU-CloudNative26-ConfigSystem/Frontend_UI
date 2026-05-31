@@ -215,7 +215,14 @@ function formatDate(iso: string | undefined): string {
 
 // ── Editor ────────────────────────────────────────────────────────────────────
 
-interface ChildRow { id: number; alias: string; value: string }
+interface ChildRow {
+  id: number
+  alias: string
+  value: string
+  searchResults: ValueSearchResult[]
+  showDropdown: boolean
+  searchTimer: ReturnType<typeof setTimeout> | null
+}
 
 interface EditorRow {
   id: number
@@ -233,6 +240,9 @@ interface EditorRow {
   valueSearchResults: ValueSearchResult[]
   valueShowDropdown: boolean
   valueSearchTimer: ReturnType<typeof setTimeout> | null
+  linkedTruthName: string  // alias of the linked TruthNode ('' = same as alias or unlinked)
+  valueConflicts: ValueSearchResult[]  // exact-value matches from different TruthNodes
+  valueShowConflict: boolean           // whether to show the conflict prompt
 }
 
 const showEditor = ref(false)
@@ -249,6 +259,7 @@ function makeRow(): EditorRow {
     isNew: true, truthId: '', searchResults: [], showDropdown: false, searchTimer: null,
     isTemplate: false, sensitive: false,
     valueSearchResults: [], valueShowDropdown: false, valueSearchTimer: null,
+    linkedTruthName: '', valueConflicts: [], valueShowConflict: false,
   }
 }
 
@@ -258,6 +269,7 @@ function makeTemplateRow(key: ProjectTemplateKey): EditorRow {
     isNew: true, truthId: '', searchResults: [], showDropdown: false, searchTimer: null,
     isTemplate: true, sensitive: false,
     valueSearchResults: [], valueShowDropdown: false, valueSearchTimer: null,
+    linkedTruthName: '', valueConflicts: [], valueShowConflict: false,
   }
 }
 
@@ -269,7 +281,7 @@ function setValueType(row: EditorRow, type: 'primitive' | 'object' | 'array') {
   if (type !== 'primitive' && row.children.length === 0) addChild(row)
 }
 function addChild(row: EditorRow) {
-  row.children.push({ id: rowIdCounter++, alias: '', value: '' })
+  row.children.push({ id: rowIdCounter++, alias: '', value: '', searchResults: [], showDropdown: false, searchTimer: null })
 }
 function removeChild(row: EditorRow, childId: number) {
   row.children = row.children.filter(c => c.id !== childId)
@@ -285,7 +297,7 @@ function onAliasInput(row: EditorRow) {
       // Auto-link if there is an exact alias match within this company
       const exact = row.searchResults.find(r => r.name.toLowerCase() === row.alias.trim().toLowerCase())
       if (exact) {
-        pickSearchResult(row, exact)
+        await pickSearchResult(row, exact)
         // Still show the dropdown when there are other results so the user can pick a different one
         row.showDropdown = row.searchResults.length > 1
       } else {
@@ -295,38 +307,152 @@ function onAliasInput(row: EditorRow) {
   }, 300)
 }
 
-function pickSearchResult(row: EditorRow, result: SearchResult) {
-  row.alias = result.name
+async function pickSearchResult(row: EditorRow, result: SearchResult) {
+  // Keep row.alias as the user typed it — it becomes the local alias for this project.
+  // A different alias + same TruthNode UUID creates a new NameNode linked to the same TruthNode.
   row.truthId = result.truth
-  row.value = result.latestValue !== null ? String(result.latestValue) : ''
   row.isNew = false
   row.showDropdown = false
   row.sensitive = result.is_sensitive ?? false
+  // Track original alias for the "linked to" badge (hidden when same as row.alias)
+  row.linkedTruthName = result.name
+
+  if (result.latestValue !== null) {
+    // Primitive — fill value directly
+    row.value = String(result.latestValue)
+    row.valueType = 'primitive'
+  } else if (!result.is_sensitive) {
+    // latestValue is null and not sensitive → could be a GROUP node
+    // Fetch the TruthNode to check latestVal
+    try {
+      const truthInfo = await api.ssot.getTruthNode(result.truth, auth.token)
+      if (truthInfo?.latestVal?.startsWith('GROUP:')) {
+        await hydrateGroupChildren(row, truthInfo.latestVal.slice(6))
+      }
+    } catch { /* leave row as-is */ }
+  }
+}
+
+async function hydrateGroupChildren(row: EditorRow, groupUuid: string) {
+  const group = await api.ssot.resolveNode(groupUuid, auth.token)
+  if (!group || group.type !== 'group' || !group.entries?.length) return
+  row.valueType = group.isArray ? 'array' : 'object'
+  row.children = []
+  for (const entry of group.entries) {
+    // Resolve the NameNode to get the alias string
+    const nameNode = await api.ssot.resolveNode(entry.key, auth.token)
+    const alias = nameNode?.name_val ?? ''
+    // Resolve the ValueNode to get the value (skip nested groups for now)
+    let value = ''
+    if (entry.val.startsWith('VALUE:')) {
+      const valueNode = await api.ssot.resolveNode(entry.val.slice(6), auth.token)
+      value = valueNode?.val != null ? String(valueNode.val) : ''
+    }
+    row.children.push({
+      id: rowIdCounter++, alias, value,
+      searchResults: [], showDropdown: false, searchTimer: null,
+    })
+  }
+}
+
+function onChildValueInput(row: EditorRow, child: ChildRow) {
+  if (child.searchTimer) clearTimeout(child.searchTimer)
+  if (child.value.trim().length < 1) {
+    child.searchResults = []; child.showDropdown = false; return
+  }
+  child.searchTimer = setTimeout(async () => {
+    try {
+      const results = await api.ssot.searchByValue(child.value, child.alias, cmpId.value, auth.token)
+      child.searchResults = results
+      child.showDropdown = results.length > 0
+    } catch { child.searchResults = []; child.showDropdown = false }
+  }, 300)
+}
+
+function pickChildValue(child: ChildRow, result: ValueSearchResult) {
+  child.value = String(result.val)
+  child.showDropdown = false
+  // Child rows contribute key/value pairs to a GroupNode — they are not independent TruthNodes.
 }
 
 function onValueInput(row: EditorRow) {
   if (row.valueType !== 'primitive') return
   if (row.valueSearchTimer) clearTimeout(row.valueSearchTimer)
+  // Reset conflict state whenever user edits the value
+  row.valueConflicts = []; row.valueShowConflict = false
   if (row.value.trim().length < 1) {
     row.valueSearchResults = []; row.valueShowDropdown = false; return
   }
   row.valueSearchTimer = setTimeout(async () => {
     try {
-      row.valueSearchResults = await api.ssot.searchByValue(row.value, row.alias, cmpId.value, auth.token)
-      row.valueShowDropdown = row.valueSearchResults.length > 0
-    } catch { row.valueSearchResults = []; row.valueShowDropdown = false }
+      const results = await api.ssot.searchByValue(row.value, row.alias, cmpId.value, auth.token)
+      const typed = row.value.trim()
+
+      // Separate exact matches (potential conflicts) from partial suggestions
+      const seen = new Set<string>()
+      const conflicts = results.filter(r => {
+        if (String(r.val) !== typed) return false      // not an exact value match
+        if (r.truth === row.truthId) return false      // already linked to this node
+        if (seen.has(r.truth)) return false            // dedup by TruthNode UUID
+        seen.add(r.truth)
+        return true
+      })
+
+      if (conflicts.length > 0) {
+        // Exact match found in another TruthNode — show conflict prompt, hide suggestions
+        row.valueConflicts = conflicts
+        row.valueShowConflict = true
+        row.valueSearchResults = []; row.valueShowDropdown = false
+      } else {
+        // No conflicts — show normal autocomplete suggestions
+        row.valueSearchResults = results
+        row.valueShowDropdown = results.length > 0
+      }
+    } catch {
+      row.valueSearchResults = []; row.valueShowDropdown = false
+      row.valueConflicts = []; row.valueShowConflict = false
+    }
   }, 300)
 }
 
 function pickValueResult(row: EditorRow, result: ValueSearchResult) {
-  row.value = String(result.val)
+  linkFromValue(row, result)   // fills alias if blank, links TruthNode, clears conflict state
   row.valueShowDropdown = false
+}
+
+// Called when user clicks "Link" on a value conflict entry
+function linkFromValue(row: EditorRow, result: ValueSearchResult) {
+  // Fill alias if blank — user arrived via value search, not alias search
+  if (!row.alias.trim()) row.alias = result.name
+  row.truthId = result.truth
+  row.isNew = false
+  row.linkedTruthName = result.name
+  row.value = String(result.val)
+  row.valueConflicts = []; row.valueShowConflict = false
+}
+
+// Called when user clicks "Create new truth node instead"
+function dismissValueConflict(row: EditorRow) {
+  row.valueConflicts = []; row.valueShowConflict = false
+  // isNew stays true — a fresh TruthNode will be created on submit
 }
 
 function toggleNew(row: EditorRow) {
   row.isNew = !row.isNew
-  if (row.isNew) { row.truthId = ''; row.value = '' }
+  if (row.isNew) {
+    row.truthId = ''; row.value = ''; row.linkedTruthName = ''
+    row.valueConflicts = []; row.valueShowConflict = false
+  }
   row.showDropdown = false
+}
+
+// Unlink from TruthNode without clearing alias/value — user can keep editing freely
+function unlinkRow(row: EditorRow) {
+  row.isNew = true
+  row.truthId = ''
+  row.linkedTruthName = ''
+  row.valueConflicts = []; row.valueShowConflict = false
+  // alias and value are intentionally kept
 }
 
 // For template rows the alias is locked and onAliasInput never fires.
@@ -337,7 +463,7 @@ async function autoLinkTemplateRow(row: EditorRow) {
   try {
     const results = await api.ssot.search(row.alias, cmpId.value, auth.token)
     const exact = results.find(r => r.name.toLowerCase() === row.alias.toLowerCase())
-    if (exact) pickSearchResult(row, exact)
+    if (exact) await pickSearchResult(row, exact)
   } catch { /* leave as isNew=true — backend will create a fresh node */ }
 }
 
@@ -385,6 +511,8 @@ async function submitConfig() {
     return
   }
   if (rows.value.length === 0) { submitError.value = 'Add at least one row.'; return }
+  const blankAlias = rows.value.find(r => !r.alias.trim())
+  if (blankAlias) { submitError.value = 'Every row must have a key name before saving.'; return }
   if (!projId.value || !cmpId.value || !envId.value) { submitError.value = 'Project, Company, and Environment are required.'; return }
   submitting.value = true
   try {
@@ -392,7 +520,7 @@ async function submitConfig() {
       CMPID: cmpId.value,
       projectID: projId.value,
       config: rows.value.map<SsotConfigEntry>(r => ({
-        truth: r.isNew ? null : r.truthId,
+        truth: (r.isNew || !r.truthId) ? null : r.truthId,
         alias: r.alias,
         value: buildValue(r),
         sensitive: r.sensitive,
@@ -713,11 +841,18 @@ async function submitConfig() {
           <button @click="backToCompanyList" class="text-sm text-slate-400 hover:text-slate-700 transition">
             ← Companies
           </button>
-          <NuxtLink
-            :to="`/config-diff?proj=${encodeURIComponent(projId)}&cmp=${encodeURIComponent(cmpId)}`"
-            class="text-xs font-semibold text-slate-500 hover:text-blue-600 bg-white ring-1 ring-slate-200 hover:ring-blue-400 rounded-xl px-3 py-1.5 transition">
-            ↔ Compare Envs
-          </NuxtLink>
+          <div class="flex items-center gap-2">
+            <NuxtLink
+              :to="`/export?proj=${encodeURIComponent(projId)}&cmp=${encodeURIComponent(cmpId)}&env=${encodeURIComponent(envId || '')}`"
+              class="text-xs font-semibold text-slate-500 hover:text-amber-600 bg-white ring-1 ring-slate-200 hover:ring-amber-400 rounded-xl px-3 py-1.5 transition">
+              ⤓ Export
+            </NuxtLink>
+            <NuxtLink
+              :to="`/config-diff?proj=${encodeURIComponent(projId)}&cmp=${encodeURIComponent(cmpId)}`"
+              class="text-xs font-semibold text-slate-500 hover:text-blue-600 bg-white ring-1 ring-slate-200 hover:ring-blue-400 rounded-xl px-3 py-1.5 transition">
+              ↔ Compare Envs
+            </NuxtLink>
+          </div>
         </div>
         <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
           <div class="px-5 py-4 border-b border-slate-50">
@@ -810,6 +945,14 @@ async function submitConfig() {
                     <input v-model="row.alias" @input="onAliasInput(row)" type="text"
                       placeholder="Key (e.g. phone)"
                       class="w-full ring-1 ring-slate-200 rounded-xl px-3 py-2 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+                    <!-- Link status row: shown whenever linked to a TruthNode -->
+                    <div v-if="!row.isNew && row.truthId" class="flex items-center gap-1.5 mt-0.5 pl-1">
+                      <span v-if="row.linkedTruthName && row.linkedTruthName !== row.alias"
+                        class="text-xs text-blue-500 truncate">→ {{ row.linkedTruthName }}</span>
+                      <button @click="unlinkRow(row)"
+                        class="text-xs text-slate-400 hover:text-red-500 shrink-0 leading-none"
+                        title="Unlink from this TruthNode">× unlink</button>
+                    </div>
                     <ul v-if="row.showDropdown"
                       class="absolute z-10 left-0 right-0 mt-1 bg-white ring-1 ring-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                       <li v-for="r in row.searchResults" :key="r.truth"
@@ -849,6 +992,26 @@ async function submitConfig() {
                       <span class="text-slate-400 text-xs shrink-0">{{ r.name }} · {{ r.projectID }}</span>
                     </li>
                   </ul>
+                  <!-- Value conflict prompt — shown when typed value exactly matches an existing TruthNode -->
+                  <div v-if="row.valueShowConflict && !row.sensitive"
+                    class="mt-1 rounded-xl ring-1 ring-amber-200 bg-amber-50 p-2.5 text-xs space-y-1.5">
+                    <p class="font-semibold text-amber-700">⚠ Value already used in this company:</p>
+                    <div v-for="c in row.valueConflicts" :key="c.truth"
+                      class="flex items-center justify-between gap-2">
+                      <span class="text-slate-600 truncate">
+                        <span class="font-semibold">{{ c.name }}</span>
+                        <span class="text-slate-400"> · {{ c.projectID }}</span>
+                      </span>
+                      <button @mousedown.prevent="linkFromValue(row, c)"
+                        class="shrink-0 text-blue-600 font-semibold hover:underline">
+                        Link
+                      </button>
+                    </div>
+                    <button @mousedown.prevent="dismissValueConflict(row)"
+                      class="text-slate-400 hover:text-slate-600 pt-0.5">
+                      Create new truth node instead →
+                    </button>
+                  </div>
                 </div>
                 <span v-else
                   class="flex items-center px-3 py-2 text-sm text-slate-400 ring-1 ring-slate-200 rounded-xl bg-white shrink-0 font-mono">
@@ -888,8 +1051,21 @@ async function submitConfig() {
                   <input v-if="row.valueType === 'object'" v-model="child.alias" type="text" placeholder="Key"
                     class="flex-1 ring-1 ring-slate-200 rounded-lg px-2 py-1.5 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 transition" />
                   <span v-else class="text-xs text-slate-400 w-5 text-right shrink-0">{{ row.children.indexOf(child) }}</span>
-                  <input v-model="child.value" type="text" placeholder="Value"
-                    class="flex-1 ring-1 ring-slate-200 rounded-lg px-2 py-1.5 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 transition" />
+                  <div class="relative flex-1">
+                    <input v-model="child.value" type="text" placeholder="Value"
+                      @input="onChildValueInput(row, child)"
+                      @blur="child.showDropdown = false"
+                      class="w-full ring-1 ring-slate-200 rounded-lg px-2 py-1.5 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 transition" />
+                    <ul v-if="child.showDropdown"
+                      class="absolute z-10 left-0 right-0 mt-1 bg-white ring-1 ring-slate-200 rounded-xl shadow-lg max-h-40 overflow-y-auto text-xs">
+                      <li v-for="r in child.searchResults" :key="r.truth"
+                        @mousedown.prevent="pickChildValue(child, r)"
+                        class="px-3 py-2 cursor-pointer hover:bg-blue-50 flex justify-between gap-2">
+                        <span class="font-mono text-slate-800">{{ r.val }}</span>
+                        <span class="text-slate-400 shrink-0">{{ r.name }} · {{ r.projectID }}</span>
+                      </li>
+                    </ul>
+                  </div>
                   <button @click="removeChild(row, child.id)"
                     class="text-slate-300 hover:text-red-500 transition text-base leading-none">×</button>
                 </div>
