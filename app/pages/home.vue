@@ -39,7 +39,7 @@ onMounted(checkHealth)
 <template>
   <div class="min-h-screen bg-slate-50">
     <header class="bg-white border-b border-slate-100">
-      <div class="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
+      <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
         <div class="flex items-center gap-2.5">
           <div class="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
             <span class="text-white text-xs font-bold leading-none">CS</span>
@@ -50,7 +50,7 @@ onMounted(checkHealth)
       </div>
     </header>
 
-    <main class="max-w-3xl mx-auto px-4 py-6 pb-16 space-y-4">
+    <main class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
       <!-- Navigation cards -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <NuxtLink to="/companies"
@@ -99,9 +99,9 @@ onMounted(checkHealth)
             Refresh
           </button>
         </div>
-        <div class="divide-y divide-slate-50">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-0 sm:gap-3 sm:p-4 divide-y sm:divide-y-0 divide-slate-50">
           <div v-for="(status, name) in statuses" :key="name"
-            class="flex items-center gap-3 px-5 py-3">
+            class="flex items-center gap-3 px-5 py-3 sm:px-4 sm:bg-slate-50 sm:rounded-xl">
             <div :class="{
               'bg-emerald-400': status === 'ok',
               'bg-red-400': status === 'error',

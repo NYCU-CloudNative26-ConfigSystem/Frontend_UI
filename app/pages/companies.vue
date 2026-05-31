@@ -58,7 +58,7 @@ async function createCompany() {
 <template>
   <div class="min-h-screen bg-slate-50">
     <nav class="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-slate-100">
-      <div class="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
+      <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
         <div class="flex items-center gap-3">
           <NuxtLink to="/home" class="text-sm text-slate-400 hover:text-slate-700 transition">← Home</NuxtLink>
           <span class="text-slate-200 select-none">|</span>
@@ -68,7 +68,7 @@ async function createCompany() {
       </div>
     </nav>
 
-    <div class="max-w-3xl mx-auto px-4 py-6 pb-16 space-y-3">
+    <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-3">
 
       <!-- Create panel -->
       <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">

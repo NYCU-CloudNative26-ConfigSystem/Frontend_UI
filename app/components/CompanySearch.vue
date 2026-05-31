@@ -71,7 +71,7 @@ function onBlur() {
     />
     <ul
       v-if="showDropdown && filtered.length > 0"
-      class="absolute z-20 left-0 right-0 mt-1 bg-white border rounded shadow-lg max-h-48 overflow-y-auto"
+      class="absolute z-20 left-0 right-0 mt-1 bg-white border rounded shadow-lg max-h-36 sm:max-h-48 overflow-y-auto"
     >
       <li
         v-for="c in filtered"

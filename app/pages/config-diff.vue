@@ -165,7 +165,7 @@ onMounted(() => {
 
     <!-- Nav -->
     <nav class="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-slate-100">
-      <div class="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
+      <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 min-w-0 text-sm">
           <NuxtLink to="/home" class="text-slate-400 hover:text-slate-700 transition shrink-0">← Home</NuxtLink>
           <span class="text-slate-200 shrink-0 select-none">|</span>
@@ -178,7 +178,7 @@ onMounted(() => {
       </div>
     </nav>
 
-    <div class="max-w-4xl mx-auto px-4 py-6 pb-16 space-y-4">
+    <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
 
       <button @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId } })"
         class="text-sm text-slate-400 hover:text-slate-700 transition">← Back to config</button>
@@ -251,7 +251,7 @@ onMounted(() => {
         <!-- Diff table -->
         <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
           <div class="overflow-x-auto">
-            <table class="w-full text-sm min-w-[580px]">
+            <table class="w-full text-xs sm:text-sm min-w-[580px]">
               <thead>
                 <tr class="border-b border-slate-100 bg-slate-50/60">
                   <th class="px-5 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wide w-[26%]">Key</th>

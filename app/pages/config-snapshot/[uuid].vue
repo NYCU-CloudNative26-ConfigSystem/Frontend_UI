@@ -243,7 +243,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
     <!-- Nav -->
     <nav class="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-slate-100">
-      <div class="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
+      <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 min-w-0 text-sm">
           <NuxtLink to="/home" class="text-slate-400 hover:text-slate-700 transition shrink-0">← Home</NuxtLink>
           <span class="text-slate-200 shrink-0 select-none">|</span>
@@ -259,7 +259,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       </div>
     </nav>
 
-    <div class="max-w-3xl mx-auto px-4 py-6 pb-16 space-y-4">
+    <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
 
       <!-- Back button -->
       <div>
@@ -328,7 +328,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             No entries in this snapshot.
           </div>
           <div v-else class="overflow-x-auto">
-            <table class="w-full text-sm">
+            <table class="w-full text-xs sm:text-sm">
               <thead>
                 <tr class="text-left border-b border-slate-50">
                   <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide w-1/2">Key</th>
@@ -460,7 +460,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <button
               @click="promoteConfig"
               :disabled="promoting || !!promoteSuccess"
-              class="rounded-xl px-5 py-2.5 text-sm font-semibold transition shrink-0"
+              class="rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold transition shrink-0"
               :class="promoteSuccess
                 ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
                 : 'bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40'">
