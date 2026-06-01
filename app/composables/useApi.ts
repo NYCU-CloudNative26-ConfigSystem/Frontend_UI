@@ -76,6 +76,7 @@ export interface ConfigReadResponse {
   promoted_from_uuid?: string | null
   proj_id?: string | null
   cmp_id?: string | null
+  name?: string | null
 }
 
 export interface ConfigWriteEntry {
@@ -93,6 +94,7 @@ export interface ConfigWritePayload {
   template_version_uuid?: string
   change_description?: string
   source_snapshot_uuid?: string
+  name?: string
 }
 
 export interface ConfigHistoryItem {
@@ -111,6 +113,9 @@ export interface ConfigHistoryItem {
   rejection_reason: string | null
   change_description: string | null
   promoted_from_uuid?: string | null
+  name?: string | null
+  proj_id?: string | null
+  cmp_id?: string | null
 }
 
 export interface ExportDownloadPayload {
@@ -178,6 +183,7 @@ export interface ProjectTemplateVersion {
   uuid: string
   proj_id: string
   version_number: number
+  template_name: string | null
   latest: boolean
   created_by: string
   date_created: string
@@ -353,6 +359,23 @@ export function useApi() {
           `${BASE.config}/api/v1/config/${encodeURIComponent(uuid)}/reject`,
           { method: 'POST', body: JSON.stringify({ reason }), headers: { Authorization: `Bearer ${token}` } },
         ),
+      search: (
+        params: { q?: string; key_uuids?: string[]; proj_id?: string; cmp_id?: string; environment?: string; skip?: number; limit?: number },
+        token: string,
+      ) => {
+        const qs = new URLSearchParams()
+        if (params.q) qs.set('q', params.q)
+        if (params.proj_id) qs.set('proj_id', params.proj_id)
+        if (params.cmp_id) qs.set('cmp_id', params.cmp_id)
+        if (params.environment) qs.set('environment', params.environment)
+        if (params.skip !== undefined) qs.set('skip', String(params.skip))
+        if (params.limit !== undefined) qs.set('limit', String(params.limit))
+        for (const u of params.key_uuids ?? []) qs.append('key_uuids', u)
+        return req<ConfigHistoryItem[]>(
+          `${BASE.config}/api/v1/config/search?${qs.toString()}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+      },
     },
 
     companies: {
@@ -424,10 +447,15 @@ export function useApi() {
           `${BASE.config}/api/v1/projects/${encodeURIComponent(projId)}/template/versions`,
           { headers: { Authorization: `Bearer ${token}` } },
         ),
-      publishTemplate: (projId: string, token: string) =>
+      publishTemplate: (projId: string, payload: { template_name?: string | null } | null, token: string) =>
         req<ProjectTemplateVersion>(
           `${BASE.config}/api/v1/projects/${encodeURIComponent(projId)}/template/publish`,
-          { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+          { method: "POST", body: JSON.stringify(payload ?? {}), headers: { Authorization: `Bearer ${token}` } },
+        ),
+      applyTemplateVersion: (projId: string, versionUuid: string, token: string) =>
+        req<ProjectTemplateVersion>(
+          `${BASE.config}/api/v1/projects/${encodeURIComponent(projId)}/template/versions/${encodeURIComponent(versionUuid)}/apply`,
+          { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
         ),
       getPublishedTemplateKeys: (projId: string, token: string) =>
         req<PublishedTemplateKeysResponse>(
