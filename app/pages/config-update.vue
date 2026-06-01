@@ -168,18 +168,11 @@ function keepAll() {
   <div class="min-h-screen bg-slate-50">
 
     <!-- Nav -->
-    <nav class="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-slate-100">
-      <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2 min-w-0 text-sm">
-          <NuxtLink to="/home" class="text-slate-400 hover:text-slate-700 transition shrink-0">← Home</NuxtLink>
-          <span class="text-slate-200 shrink-0 select-none">|</span>
-          <span class="font-semibold text-slate-700 capitalize truncate">
-            {{ snapshot?.environment ?? 'Config' }} update review
-          </span>
-        </div>
-        <button @click="auth.logout()" class="text-sm text-slate-400 hover:text-red-500 transition shrink-0">Logout</button>
-      </div>
-    </nav>
+    <AppNav>
+      <span class="font-semibold text-slate-700 capitalize truncate">
+        {{ snapshot?.environment ?? 'Config' }} update review
+      </span>
+    </AppNav>
 
     <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
 
@@ -198,10 +191,7 @@ function keepAll() {
       </div>
 
       <!-- Error -->
-      <div v-else-if="loadError"
-        class="bg-red-50 ring-1 ring-red-200 rounded-2xl px-5 py-4 text-sm text-red-700">
-        {{ loadError }}
-      </div>
+      <AlertBox v-else-if="loadError" :large="true">{{ loadError }}</AlertBox>
 
       <template v-else-if="snapshot">
 
@@ -363,10 +353,7 @@ function keepAll() {
                 class="w-full ring-1 ring-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 transition resize-none" />
             </div>
 
-            <div v-if="submitError"
-              class="text-sm text-red-600 bg-red-50 ring-1 ring-red-200 rounded-xl px-3 py-2">
-              {{ submitError }}
-            </div>
+            <AlertBox v-if="submitError">{{ submitError }}</AlertBox>
 
             <button
               @click="submit"

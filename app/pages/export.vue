@@ -270,16 +270,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <div class="min-h-screen bg-slate-50">
-    <header class="bg-white border-b border-slate-100">
-      <div class="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
-        <div class="flex items-center gap-2.5 min-w-0">
-          <NuxtLink to="/home" class="text-slate-400 hover:text-slate-700 text-sm shrink-0">← Home</NuxtLink>
-          <span class="text-slate-200 select-none">|</span>
-          <span class="font-semibold text-slate-900 text-sm truncate">Config Export</span>
-        </div>
-        <button @click="auth.logout()" class="text-sm text-slate-400 hover:text-red-500 transition">Logout</button>
-      </div>
-    </header>
+    <AppNav><span class="font-semibold text-slate-900">Config Export</span></AppNav>
 
     <main class="max-w-3xl mx-auto px-4 py-6 pb-16 space-y-4">
 
@@ -465,57 +456,34 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     </main>
 
     <!-- Download confirmation modal -->
-    <Teleport to="body">
-      <div v-if="showDownloadModal"
-        class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/30 backdrop-blur-sm"
-        @click.self="closeDownloadModal">
-        <div class="bg-white rounded-2xl ring-1 ring-slate-900/10 shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh]">
+    <AppModal v-model="showDownloadModal" title="Confirm download" :subtitle="previewResult?.filename">
 
-          <!-- Modal header -->
-          <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
-            <div class="min-w-0">
-              <h3 class="font-semibold text-slate-900 text-sm">Confirm download</h3>
-              <p v-if="previewResult" class="text-xs text-slate-400 font-mono mt-0.5 truncate">{{ previewResult.filename }}</p>
-            </div>
-            <button @click="closeDownloadModal" class="text-slate-400 hover:text-slate-700 transition text-xl leading-none px-1 shrink-0">×</button>
-          </div>
-
-          <!-- Preview content inside modal -->
-          <div class="overflow-y-auto flex-1 min-h-0">
-            <div v-if="previewing" class="px-5 py-8 flex items-center justify-center gap-2 text-sm text-slate-400">
-              <svg class="animate-spin h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-              </svg>
-              Loading preview…
-            </div>
-            <pre v-else-if="previewResult"
-              class="px-5 py-4 text-xs text-slate-700 leading-relaxed whitespace-pre font-mono bg-slate-50">{{ previewResult.content }}</pre>
-            <div v-else class="px-5 py-6 text-sm text-slate-400 text-center">
-              No preview available.
-            </div>
-          </div>
-
-          <!-- Modal footer -->
-          <div class="px-5 py-4 border-t border-slate-100 flex flex-col gap-2 shrink-0">
-            <div v-if="downloadError" class="text-sm text-red-600 bg-red-50 ring-1 ring-red-200 rounded-xl px-3 py-2">
-              {{ downloadError }}
-            </div>
-            <div class="flex gap-2 justify-end">
-              <button @click="closeDownloadModal"
-                class="rounded-xl px-4 py-2 text-sm font-semibold ring-1 ring-slate-200 text-slate-600 hover:bg-slate-50 transition">
-                Cancel
-              </button>
-              <button @click="confirmDownload" :disabled="downloading"
-                class="rounded-xl px-5 py-2 text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition disabled:opacity-40">
-                {{ downloading ? 'Downloading…' : 'Download' }}
-              </button>
-            </div>
-          </div>
-
-        </div>
+      <div v-if="previewing" class="px-5 py-8 flex items-center justify-center gap-2 text-sm text-slate-400">
+        <svg class="animate-spin h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+        </svg>
+        Loading preview…
       </div>
-    </Teleport>
+      <pre v-else-if="previewResult"
+        class="px-5 py-4 text-xs text-slate-700 leading-relaxed whitespace-pre font-mono bg-slate-50">{{ previewResult.content }}</pre>
+      <div v-else class="px-5 py-6 text-sm text-slate-400 text-center">No preview available.</div>
+
+      <template #footer>
+        <AlertBox v-if="downloadError">{{ downloadError }}</AlertBox>
+        <div class="flex gap-2 justify-end">
+          <button @click="closeDownloadModal"
+            class="rounded-xl px-4 py-2 text-sm font-semibold ring-1 ring-slate-200 text-slate-600 hover:bg-slate-50 transition">
+            Cancel
+          </button>
+          <button @click="confirmDownload" :disabled="downloading"
+            class="rounded-xl px-5 py-2 text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition disabled:opacity-40">
+            {{ downloading ? 'Downloading…' : 'Download' }}
+          </button>
+        </div>
+      </template>
+
+    </AppModal>
 
   </div>
 </template>

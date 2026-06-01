@@ -123,16 +123,7 @@ function modeLabel(m: DisplayMode) {
 
 <template>
   <div class="min-h-screen bg-slate-50">
-    <nav class="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-slate-100">
-      <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <NuxtLink to="/home" class="text-sm text-slate-400 hover:text-slate-700 transition">← Home</NuxtLink>
-          <span class="text-slate-200 select-none">|</span>
-          <h1 class="font-semibold text-slate-900 text-sm">Projects</h1>
-        </div>
-        <button @click="auth.logout()" class="text-sm text-slate-400 hover:text-red-500 transition">Logout</button>
-      </div>
-    </nav>
+    <AppNav><h1 class="font-semibold text-slate-900">Projects</h1></AppNav>
 
     <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-3">
 
@@ -163,8 +154,7 @@ function modeLabel(m: DisplayMode) {
       </div>
 
       <!-- Error -->
-      <div v-if="loadError"
-        class="text-sm text-red-700 bg-red-50 ring-1 ring-red-200 rounded-xl px-4 py-3">{{ loadError }}</div>
+      <AlertBox v-if="loadError">{{ loadError }}</AlertBox>
 
       <!-- Empty state -->
       <div v-if="projects.length === 0 && !loadError"

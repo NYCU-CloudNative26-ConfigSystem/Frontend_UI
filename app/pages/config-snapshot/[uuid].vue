@@ -307,22 +307,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   <div class="min-h-screen bg-slate-50">
 
     <!-- Nav -->
-    <nav class="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-slate-100">
-      <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2 min-w-0 text-sm">
-          <NuxtLink to="/home" class="text-slate-400 hover:text-slate-700 transition shrink-0">← Home</NuxtLink>
-          <span class="text-slate-200 shrink-0 select-none">|</span>
-          <button
-            @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId, env: envId } })"
-            class="text-slate-400 hover:text-slate-700 transition shrink-0 capitalize hidden sm:inline">
-            {{ envId || 'Config' }}
-          </button>
-          <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
-          <span class="font-semibold text-slate-900 truncate font-mono text-xs">{{ uuid }}</span>
-        </div>
-        <button @click="auth.logout()" class="text-sm text-slate-400 hover:text-red-500 transition shrink-0">Logout</button>
-      </div>
-    </nav>
+    <AppNav>
+      <button
+        @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId, env: envId } })"
+        class="text-slate-400 hover:text-slate-700 transition shrink-0 capitalize hidden sm:inline">
+        {{ envId || 'Config' }}
+      </button>
+      <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
+      <span class="font-semibold text-slate-900 truncate font-mono text-xs">{{ uuid }}</span>
+    </AppNav>
 
     <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
 
@@ -337,8 +330,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
       <!-- Loading / error -->
       <div v-if="loading" class="text-center py-12 text-sm text-slate-400">Loading snapshot…</div>
-      <div v-else-if="loadError"
-        class="bg-red-50 ring-1 ring-red-200 rounded-2xl px-5 py-4 text-sm text-red-700">{{ loadError }}</div>
+      <AlertBox v-else-if="loadError" :large="true">{{ loadError }}</AlertBox>
 
       <template v-else-if="config">
 
@@ -347,14 +339,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <div class="px-5 py-4 border-b border-slate-50 flex items-start justify-between gap-4">
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2 mb-1">
-                <span v-if="isLatest && localApprovalStatus === 'approved'"
-                  class="bg-blue-50 text-blue-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Latest</span>
-                <span v-else-if="localApprovalStatus === 'pending'"
-                  class="bg-yellow-50 text-yellow-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Pending review</span>
-                <span v-else-if="localApprovalStatus === 'rejected'"
-                  class="bg-red-50 text-red-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Rejected</span>
-                <span v-else-if="localApprovalStatus === 'approved'"
-                  class="bg-slate-100 text-slate-500 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Approved</span>
+                <StatusBadge :status="localApprovalStatus" :is-latest="isLatest" />
                 <span class="font-semibold text-slate-900 text-sm capitalize">{{ config.environment }}</span>
                 <span v-if="tmplVersion != null"
                   class="bg-slate-100 text-slate-500 text-xs font-medium px-2 py-0.5 rounded-full">
