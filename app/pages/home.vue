@@ -70,6 +70,15 @@ onMounted(checkHealth)
           <p class="text-xs text-slate-400 mt-0.5">Browse config snapshots</p>
         </NuxtLink>
 
+        <NuxtLink to="/config-search"
+          class="group bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 hover:ring-blue-500/40 hover:shadow-sm transition-all">
+          <div class="w-9 h-9 bg-violet-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-violet-200 transition">
+            <span class="text-violet-700 text-xs font-bold">SRC</span>
+          </div>
+          <p class="font-semibold text-slate-800 text-sm">Search Configs</p>
+          <p class="text-xs text-slate-400 mt-0.5">Find configs by name, project, company, or key</p>
+        </NuxtLink>
+
         <NuxtLink to="/export"
           class="group bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 hover:ring-blue-500/40 hover:shadow-sm transition-all">
           <div class="w-9 h-9 bg-amber-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-amber-200 transition">

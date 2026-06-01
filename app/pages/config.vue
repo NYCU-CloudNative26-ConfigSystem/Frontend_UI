@@ -385,6 +385,7 @@ interface EditorRow {
 const showEditor = ref(false)
 const rows = ref<EditorRow[]>([])
 const changeDescription = ref('')
+const configName = ref('')
 const submitError = ref('')
 const submitSuccess = ref(false)
 const submitting = ref(false)
@@ -634,6 +635,7 @@ function openEditor() {
   }
   rows.value = publishedTemplateKeys.value.map(alias => makeTemplateRow({ alias } as ProjectTemplateKey))
   changeDescription.value = ''
+  configName.value = ''
   showEditor.value = true
   // Auto-link template rows to existing TruthNodes for this company
   rows.value.forEach(row => autoLinkTemplateRow(row))
@@ -669,6 +671,7 @@ async function loadFromSnapshot(fromUuid: string) {
 
   rows.value = newRows
   changeDescription.value = ''
+  configName.value = ''
   showEditor.value = true
 }
 
@@ -708,10 +711,12 @@ async function submitConfig() {
       template_version_uuid: publishedTemplateVersionUuid.value ?? undefined,
       change_description: changeDescription.value.trim() || undefined,
       source_snapshot_uuid: (route.query.from as string) || undefined,
+      name: configName.value.trim() || undefined,
     }, auth.token)
 
     submitSuccess.value = true
     rows.value = []
+    configName.value = ''
     showEditor.value = false
 
     // Ensure the company is linked to the project (idempotent — ignore if already linked)
@@ -1323,6 +1328,16 @@ async function submitConfig() {
             <button @click="addRow"
               class="text-sm text-blue-600 hover:text-blue-700 font-semibold transition">+ Add row</button>
 
+            <!-- Config name -->
+            <div class="space-y-1.5 pt-1">
+              <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide">Config name <span class="text-slate-400 font-normal normal-case">(optional — auto-generated if blank)</span></label>
+              <input
+                v-model="configName"
+                type="text"
+                placeholder="e.g. Q2 production baseline"
+                class="w-full ring-1 ring-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+            </div>
+
             <!-- Change description -->
             <div class="space-y-1.5 pt-1">
               <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide">Reason for change</label>
@@ -1374,7 +1389,8 @@ async function submitConfig() {
                   class="bg-red-50 text-red-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Rejected</span>
                 <span v-else-if="snap.approval_status === 'approved'"
                   class="bg-slate-100 text-slate-500 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Approved</span>
-                <span class="text-sm font-medium text-slate-700">{{ formatDate(snap.date_created) }}</span>
+                <span class="text-sm font-medium text-slate-700">{{ snap.name ?? formatDate(snap.date_created) }}</span>
+                <span v-if="snap.name" class="text-xs text-slate-400">· {{ formatDate(snap.date_created) }}</span>
                 <span class="text-xs text-slate-400">· {{ snap.created_by ?? 'unknown' }}</span>
                 <span class="text-xs text-slate-400">· {{ snap.entry_count }} {{ snap.entry_count === 1 ? 'entry' : 'entries' }}</span>
                 <span v-if="snap.template_version_number != null"
