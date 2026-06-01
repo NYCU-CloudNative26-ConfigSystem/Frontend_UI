@@ -2,7 +2,6 @@
 definePageMeta({ middleware: 'auth' })
 
 const api = useApi()
-const auth = useAuthStore()
 
 const statuses = ref<Record<string, 'ok' | 'error' | 'checking'>>({
   login: 'checking',
@@ -32,17 +31,12 @@ onMounted(checkHealth)
 
 <template>
   <div class="min-h-screen bg-slate-50">
-    <header class="bg-white border-b border-slate-100">
-      <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-        <div class="flex items-center gap-2.5">
-          <div class="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
-            <span class="text-white text-xs font-bold leading-none">CS</span>
-          </div>
-          <span class="font-semibold text-slate-900 text-sm">Config System</span>
-        </div>
-        <button @click="auth.logout()" class="text-sm text-slate-400 hover:text-red-500 transition">Logout</button>
+    <AppNav :show-back="false">
+      <div class="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
+        <span class="text-white text-xs font-bold leading-none">CS</span>
       </div>
-    </header>
+      <span class="font-semibold text-slate-900 text-sm">Config System</span>
+    </AppNav>
 
     <main class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
       <!-- Navigation cards -->
