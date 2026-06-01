@@ -7,6 +7,7 @@ const statuses = ref<Record<string, 'ok' | 'error' | 'checking'>>({
   login: 'checking',
   config: 'checking',
   ssot: 'checking',
+  export: 'checking',
 })
 
 async function checkHealth() {
@@ -14,6 +15,7 @@ async function checkHealth() {
     ['login', api.health.login],
     ['config', api.health.config],
     ['ssot', api.health.ssot],
+    ['export', api.health.export],
   ]
   for (const [key, fn] of checks) {
     statuses.value[key] = 'checking'
