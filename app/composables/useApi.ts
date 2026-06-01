@@ -349,6 +349,11 @@ export function useApi() {
           `${BASE.config}/api/v1/config/${encodeURIComponent(uuid)}/promote`,
           { method: 'POST', body: JSON.stringify({ to_environment: toEnvironment }), headers: { Authorization: `Bearer ${token}` } },
         ),
+      updatePending: (uuid: string, entries: ConfigWriteEntry[], token: string) =>
+        req<ConfigReadResponse>(
+          `${BASE.config}/api/v1/config/${encodeURIComponent(uuid)}`,
+          { method: 'PATCH', body: JSON.stringify({ entries }), headers: { Authorization: `Bearer ${token}` } },
+        ),
       approve: (uuid: string, token: string) =>
         req<ConfigApprovalResponse>(
           `${BASE.config}/api/v1/config/${encodeURIComponent(uuid)}/approve`,

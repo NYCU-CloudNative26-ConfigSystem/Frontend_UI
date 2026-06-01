@@ -438,8 +438,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <!-- Pending + can review -->
           <template v-if="localApprovalStatus === 'pending' && canReview">
             <div class="px-5 py-4 space-y-3">
-              <p class="text-sm text-slate-600">This snapshot is awaiting approval. As a <span class="font-semibold capitalize">{{ myRole }}</span>, you can approve or reject it.</p>
+              <p class="text-sm text-slate-600">This snapshot is awaiting approval. As a <span class="font-semibold capitalize">{{ myRole }}</span>, you can edit, approve, or reject it.</p>
               <div class="flex flex-wrap gap-2">
+                <button
+                  @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId, env: config.environment, editPending: uuid } })"
+                  class="rounded-xl px-5 py-2 text-sm font-semibold ring-1 ring-blue-200 text-blue-600 hover:bg-blue-50 transition">
+                  Edit
+                </button>
                 <button
                   @click="approveConfig"
                   :disabled="approving"
