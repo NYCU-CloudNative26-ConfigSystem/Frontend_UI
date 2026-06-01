@@ -21,13 +21,19 @@ const selectedFormat = ref<ExportDownloadPayload['format']>('json')
 const selectedVersionUuid = ref('')
 const versions = ref<ConfigHistoryItem[]>([])
 const loadingVersions = ref(false)
-const downloading = ref(false)
+const loadError = ref('')
+const notice = ref('')
+
+// Preview state — auto-updated whenever version or format changes
 const previewing = ref(false)
 const previewResult = ref<ExportPreviewResponse | null>(null)
 const previewError = ref('')
-const loadError = ref('')
+let previewGeneration = 0  // stale-response guard
+
+// Download modal + download state
+const showDownloadModal = ref(false)
+const downloading = ref(false)
 const downloadError = ref('')
-const notice = ref('')
 
 const ENVIRONMENTS = [
   { id: 'development', label: 'Development' },
@@ -37,22 +43,21 @@ const ENVIRONMENTS = [
 ] as const
 
 const FORMAT_OPTIONS: { value: ExportDownloadPayload['format']; label: string; description: string }[] = [
-  { value: 'json', label: '.json', description: 'Compact object mapping' },
-  { value: 'yaml', label: '.yaml', description: 'Human-readable document' },
-  { value: 'env', label: '.env', description: 'Environment variables' },
-  { value: 'xml', label: '.xml', description: 'XML document' },
+  { value: 'json',       label: '.json',       description: 'Compact object mapping' },
+  { value: 'yaml',       label: '.yaml',       description: 'Human-readable document' },
+  { value: 'env',        label: '.env',        description: 'Environment variables' },
+  { value: 'xml',        label: '.xml',        description: 'XML document' },
   { value: 'properties', label: '.properties', description: 'Java-style properties file' },
 ]
 
 const selectedProject = computed(() => projects.value.find(p => p.proj_id === projId.value) ?? null)
-const selectedCompany = computed(() => allCompanies.value.find(c => c.cmp_id === cmpId.value) ?? null)
+const selectedCompany  = computed(() => allCompanies.value.find(c => c.cmp_id === cmpId.value) ?? null)
 
 const projectOptions = computed(() => {
   const q = projectQuery.value.toLowerCase().trim()
   if (!q) return projects.value
-  return projects.value.filter(project =>
-    project.proj_id.toLowerCase().includes(q) ||
-    project.display_name.toLowerCase().includes(q)
+  return projects.value.filter(p =>
+    p.proj_id.toLowerCase().includes(q) || p.display_name.toLowerCase().includes(q)
   )
 })
 
@@ -60,31 +65,27 @@ const companyPool = computed(() => {
   const project = selectedProject.value
   if (!project || project.companies.length === 0) return allCompanies.value
   const linked = new Set(project.companies)
-  return allCompanies.value.filter(company => linked.has(company.cmp_id))
+  return allCompanies.value.filter(c => linked.has(c.cmp_id))
 })
 
 const companyOptions = computed(() => {
   const q = companyQuery.value.toLowerCase().trim()
   if (!q) return companyPool.value
-  return companyPool.value.filter(company =>
-    company.cmp_id.toLowerCase().includes(q) ||
-    company.display_name.toLowerCase().includes(q)
+  return companyPool.value.filter(c =>
+    c.cmp_id.toLowerCase().includes(q) || c.display_name.toLowerCase().includes(q)
   )
 })
 
-function companyLabel(cmpIdValue: string): string {
-  return allCompanies.value.find(company => company.cmp_id === cmpIdValue)?.display_name ?? cmpIdValue
+function companyLabel(id: string): string {
+  return allCompanies.value.find(c => c.cmp_id === id)?.display_name ?? id
 }
 
 function selectProject(project: ProjectResponse) {
   projId.value = project.proj_id
   projectQuery.value = `${project.display_name} (${project.proj_id})`
   showProjectMenu.value = false
-  const allowed = new Set(companyPool.value.map(company => company.cmp_id))
-  if (cmpId.value && !allowed.has(cmpId.value)) {
-    cmpId.value = ''
-    companyQuery.value = ''
-  }
+  const allowed = new Set(companyPool.value.map(c => c.cmp_id))
+  if (cmpId.value && !allowed.has(cmpId.value)) { cmpId.value = ''; companyQuery.value = '' }
   notice.value = ''
 }
 
@@ -95,48 +96,20 @@ function selectCompany(company: CompanyResponse) {
   notice.value = ''
 }
 
-function onProjectInput() {
-  showProjectMenu.value = true
-}
-
-function onCompanyInput() {
-  showCompanyMenu.value = true
-}
-
 function onProjectBlur() {
   window.setTimeout(() => {
     showProjectMenu.value = false
-    if (selectedProject.value) {
+    if (selectedProject.value)
       projectQuery.value = `${selectedProject.value.display_name} (${selectedProject.value.proj_id})`
-    }
   }, 120)
 }
 
 function onCompanyBlur() {
   window.setTimeout(() => {
     showCompanyMenu.value = false
-    if (selectedCompany.value) {
+    if (selectedCompany.value)
       companyQuery.value = `${selectedCompany.value.display_name} (${selectedCompany.value.cmp_id})`
-    }
   }, 120)
-}
-
-async function loadScopeOptions() {
-  const [projectList, companyList] = await Promise.all([
-    api.projects.list(auth.token),
-    api.companies.list(auth.token),
-  ])
-  projects.value = projectList
-  allCompanies.value = companyList
-}
-
-function syncQueriesFromSelection() {
-  projectQuery.value = selectedProject.value
-    ? `${selectedProject.value.display_name} (${selectedProject.value.proj_id})`
-    : ''
-  companyQuery.value = selectedCompany.value
-    ? `${selectedCompany.value.display_name} (${selectedCompany.value.cmp_id})`
-    : ''
 }
 
 function formatDate(iso: string | null | undefined): string {
@@ -153,42 +126,21 @@ function selectVersion(item: ConfigHistoryItem) {
   notice.value = ''
 }
 
-function parseContentDisposition(header: string | null): string | null {
-  if (!header) return null
-  const match = header.match(/filename="?([^";]+)"?/i)
-  return match?.[1] ?? null
+function syncQueriesFromSelection() {
+  projectQuery.value = selectedProject.value
+    ? `${selectedProject.value.display_name} (${selectedProject.value.proj_id})` : ''
+  companyQuery.value = selectedCompany.value
+    ? `${selectedCompany.value.display_name} (${selectedCompany.value.cmp_id})` : ''
 }
 
-async function loadVersions() {
-  loadError.value = ''
-  notice.value = ''
-  versions.value = []
-  selectedVersionUuid.value = ''
-  if (!projId.value || !cmpId.value) {
-    loadError.value = 'Project ID and Company ID are required.'
-    return
-  }
-  loadingVersions.value = true
-  try {
-    versions.value = await api.export.listVersions(projId.value, cmpId.value, environment.value, auth.token)
-    const latest = versions.value.find(v => v.is_latest)
-    selectedVersionUuid.value = latest ? '' : (versions.value[0]?.config_relation_uuid ?? '')
-    notice.value = versions.value.length > 0 ? `Loaded ${versions.value.length} version(s).` : 'No versions found for this scope.'
-  } catch (error: unknown) {
-    loadError.value = error instanceof Error ? error.message : 'Failed to load versions'
-  } finally {
-    loadingVersions.value = false
-  }
-}
+// ── Preview (auto-triggered) ──────────────────────────────────────────────────
 
-async function previewExport() {
+async function fetchPreview() {
+  if (!projId.value || !cmpId.value || versions.value.length === 0) return
+
   previewError.value = ''
-  previewResult.value = null
-  if (!projId.value || !cmpId.value) {
-    previewError.value = 'Project ID and Company ID are required.'
-    return
-  }
   previewing.value = true
+  const gen = ++previewGeneration
   try {
     const payload: ExportDownloadPayload = {
       proj_id: projId.value,
@@ -198,24 +150,67 @@ async function previewExport() {
       version_uuid: selectedVersionUuid.value || null,
       filename: filename.value.trim() || null,
     }
-    previewResult.value = await api.export.preview(payload, auth.token)
-    // Scroll preview into view after render
-    await nextTick()
-    document.getElementById('export-preview')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  } catch (error: unknown) {
-    previewError.value = error instanceof Error ? error.message : 'Preview failed'
+    const result = await api.export.preview(payload, auth.token)
+    if (gen !== previewGeneration) return  // superseded by a newer request
+    previewResult.value = result
+  } catch (e: unknown) {
+    if (gen !== previewGeneration) return
+    previewError.value = e instanceof Error ? e.message : 'Preview failed'
+    previewResult.value = null
   } finally {
-    previewing.value = false
+    if (gen === previewGeneration) previewing.value = false
   }
 }
 
-async function downloadExport() {
-  downloadError.value = ''
+// Re-fetch preview whenever version or format changes
+watch([selectedVersionUuid, selectedFormat], fetchPreview)
+
+// ── Load versions ─────────────────────────────────────────────────────────────
+
+async function loadVersions() {
+  loadError.value = ''
   notice.value = ''
+  versions.value = []
+  selectedVersionUuid.value = ''
+  previewResult.value = null
   if (!projId.value || !cmpId.value) {
-    downloadError.value = 'Project ID and Company ID are required.'
+    loadError.value = 'Project ID and Company ID are required.'
     return
   }
+  loadingVersions.value = true
+  try {
+    versions.value = await api.export.listVersions(projId.value, cmpId.value, environment.value, auth.token)
+    const latest = versions.value.find(v => v.is_latest)
+    selectedVersionUuid.value = latest ? '' : (versions.value[0]?.config_relation_uuid ?? '')
+    notice.value = versions.value.length > 0
+      ? `Loaded ${versions.value.length} version(s).`
+      : 'No versions found for this scope.'
+    if (versions.value.length > 0) fetchPreview()
+  } catch (e: unknown) {
+    loadError.value = e instanceof Error ? e.message : 'Failed to load versions'
+  } finally {
+    loadingVersions.value = false
+  }
+}
+
+// ── Download ──────────────────────────────────────────────────────────────────
+
+function parseContentDisposition(header: string | null): string | null {
+  const match = header?.match(/filename="?([^";]+)"?/i)
+  return match?.[1] ?? null
+}
+
+function openDownloadModal() {
+  downloadError.value = ''
+  showDownloadModal.value = true
+}
+
+function closeDownloadModal() {
+  showDownloadModal.value = false
+}
+
+async function confirmDownload() {
+  downloadError.value = ''
   downloading.value = true
   try {
     const payload: ExportDownloadPayload = {
@@ -235,39 +230,42 @@ async function downloadExport() {
     anchor.click()
     anchor.remove()
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+    showDownloadModal.value = false
     notice.value = 'Download started.'
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to download export'
-    if (message.toLowerCase().includes('session expired') || message.toLowerCase().includes('unauthorized')) {
-      downloadError.value = 'Session expired while resolving SSOT values. Please login again and retry export.'
-    } else {
-      downloadError.value = message
-    }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Failed to download export'
+    downloadError.value = msg.toLowerCase().includes('unauthorized')
+      ? 'Session expired. Please log in again and retry.'
+      : msg
   } finally {
     downloading.value = false
   }
 }
 
+const onKeydown = (e: KeyboardEvent) => { if (e.key === 'Escape') closeDownloadModal() }
 onMounted(async () => {
+  window.addEventListener('keydown', onKeydown)
   try {
-    await loadScopeOptions()
+    const [projectList, companyList] = await Promise.all([
+      api.projects.list(auth.token),
+      api.companies.list(auth.token),
+    ])
+    projects.value = projectList
+    allCompanies.value = companyList
     if (route.query.proj) projId.value = route.query.proj as string
-    if (route.query.cmp) cmpId.value = route.query.cmp as string
-    if (route.query.env) environment.value = route.query.env as string
+    if (route.query.cmp)  cmpId.value  = route.query.cmp  as string
+    if (route.query.env)  environment.value = route.query.env as string
     if (projId.value && cmpId.value) {
-      const allowed = new Set(companyPool.value.map(company => company.cmp_id))
-      if (!allowed.has(cmpId.value)) {
-        cmpId.value = ''
-      }
+      const allowed = new Set(companyPool.value.map(c => c.cmp_id))
+      if (!allowed.has(cmpId.value)) cmpId.value = ''
     }
     syncQueriesFromSelection()
-    if (projId.value && cmpId.value) {
-      await loadVersions()
-    }
-  } catch (error: unknown) {
-    loadError.value = error instanceof Error ? error.message : 'Failed to load project/company options'
+    if (projId.value && cmpId.value) await loadVersions()
+  } catch (e: unknown) {
+    loadError.value = e instanceof Error ? e.message : 'Failed to load project/company options'
   }
 })
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
@@ -284,58 +282,54 @@ onMounted(async () => {
     </header>
 
     <main class="max-w-3xl mx-auto px-4 py-6 pb-16 space-y-4">
+
+      <!-- Scope picker -->
       <section class="bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 space-y-4">
         <div>
           <h1 class="text-lg font-semibold text-slate-900">Export config snapshot</h1>
-          <p class="text-sm text-slate-500 mt-1">Choose the scope, version, and output format, then download the file directly.</p>
+          <p class="text-sm text-slate-500 mt-1">Select a scope and version — a live preview updates automatically.</p>
         </div>
 
         <div class="grid gap-3 sm:grid-cols-2">
+          <!-- Project search -->
           <div class="space-y-2 relative">
             <label class="space-y-1.5 block">
-              <span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Project search</span>
+              <span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Project</span>
               <input v-model="projectQuery" type="text" placeholder="Search project ID or name"
-                @focus="showProjectMenu = true"
-                @input="onProjectInput"
-                @blur="onProjectBlur"
+                @focus="showProjectMenu = true" @input="showProjectMenu = true" @blur="onProjectBlur"
                 class="w-full ring-1 ring-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
             </label>
             <div v-if="showProjectMenu" class="absolute left-0 right-0 top-[76px] z-20 ring-1 ring-slate-200 rounded-xl bg-white overflow-hidden shadow-lg">
-              <div v-if="projectOptions.length === 0" class="px-3 py-3 text-xs text-slate-400">No project matches your search.</div>
+              <div v-if="projectOptions.length === 0" class="px-3 py-3 text-xs text-slate-400">No matches.</div>
               <div v-else class="max-h-56 overflow-y-auto divide-y divide-slate-50">
-                <button
-                  v-for="project in projectOptions"
-                  :key="project.proj_id"
-                  @mousedown.prevent="selectProject(project)"
+                <button v-for="p in projectOptions" :key="p.proj_id"
+                  @mousedown.prevent="selectProject(p)"
                   class="w-full px-3 py-2.5 text-left hover:bg-slate-50 transition"
-                  :class="projId === project.proj_id ? 'bg-blue-50' : ''">
-                  <p class="text-sm font-semibold text-slate-800">{{ project.display_name }}</p>
-                  <p class="text-xs text-slate-400 font-mono mt-0.5">{{ project.proj_id }}</p>
+                  :class="projId === p.proj_id ? 'bg-blue-50' : ''">
+                  <p class="text-sm font-semibold text-slate-800">{{ p.display_name }}</p>
+                  <p class="text-xs text-slate-400 font-mono mt-0.5">{{ p.proj_id }}</p>
                 </button>
               </div>
             </div>
           </div>
 
+          <!-- Company search -->
           <div class="space-y-2 relative">
             <label class="space-y-1.5 block">
-              <span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Company search</span>
+              <span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Company</span>
               <input v-model="companyQuery" type="text" placeholder="Search company ID or name"
-                @focus="showCompanyMenu = true"
-                @input="onCompanyInput"
-                @blur="onCompanyBlur"
+                @focus="showCompanyMenu = true" @input="showCompanyMenu = true" @blur="onCompanyBlur"
                 class="w-full ring-1 ring-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
             </label>
             <div v-if="showCompanyMenu" class="absolute left-0 right-0 top-[76px] z-20 ring-1 ring-slate-200 rounded-xl bg-white overflow-hidden shadow-lg">
-              <div v-if="companyOptions.length === 0" class="px-3 py-3 text-xs text-slate-400">No company matches your search.</div>
+              <div v-if="companyOptions.length === 0" class="px-3 py-3 text-xs text-slate-400">No matches.</div>
               <div v-else class="max-h-56 overflow-y-auto divide-y divide-slate-50">
-                <button
-                  v-for="company in companyOptions"
-                  :key="company.cmp_id"
-                  @mousedown.prevent="selectCompany(company)"
+                <button v-for="c in companyOptions" :key="c.cmp_id"
+                  @mousedown.prevent="selectCompany(c)"
                   class="w-full px-3 py-2.5 text-left hover:bg-slate-50 transition"
-                  :class="cmpId === company.cmp_id ? 'bg-blue-50' : ''">
-                  <p class="text-sm font-semibold text-slate-800">{{ company.display_name }}</p>
-                  <p class="text-xs text-slate-400 font-mono mt-0.5">{{ company.cmp_id }}</p>
+                  :class="cmpId === c.cmp_id ? 'bg-blue-50' : ''">
+                  <p class="text-sm font-semibold text-slate-800">{{ c.display_name }}</p>
+                  <p class="text-xs text-slate-400 font-mono mt-0.5">{{ c.cmp_id }}</p>
                 </button>
               </div>
             </div>
@@ -348,7 +342,7 @@ onMounted(async () => {
               <option v-for="env in ENVIRONMENTS" :key="env.id" :value="env.id">{{ env.label }}</option>
             </select>
           </label>
-          <div class="space-y-1.5 flex items-end">
+          <div class="flex items-end">
             <button @click="loadVersions" :disabled="loadingVersions"
               class="w-full bg-blue-600 text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-blue-700 transition disabled:opacity-40">
               {{ loadingVersions ? 'Loading…' : 'Load versions' }}
@@ -369,11 +363,12 @@ onMounted(async () => {
         <div v-else-if="notice" class="text-sm text-slate-500">{{ notice }}</div>
       </section>
 
+      <!-- Version list -->
       <section class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
         <div class="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
           <div>
             <h2 class="font-semibold text-slate-900 text-sm">Versions</h2>
-            <p class="text-xs text-slate-400 mt-0.5">Latest is marked explicitly. Click a version to export it instead.</p>
+            <p class="text-xs text-slate-400 mt-0.5">Click a version to select it — the preview updates instantly.</p>
           </div>
           <span class="text-xs text-slate-400">{{ versions.length }} item(s)</span>
         </div>
@@ -402,72 +397,125 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section class="bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 space-y-4">
-        <div>
-          <h2 class="font-semibold text-slate-900 text-sm">Output format</h2>
-          <p class="text-xs text-slate-400 mt-0.5">Choose a format and optionally provide a custom filename.</p>
-        </div>
+      <!-- Format picker + live preview -->
+      <section class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
+        <div class="p-5 space-y-4">
+          <div>
+            <h2 class="font-semibold text-slate-900 text-sm">Output format</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Selecting a format instantly updates the preview below.</p>
+          </div>
 
-        <div class="grid gap-3 sm:grid-cols-2">
-          <button v-for="option in FORMAT_OPTIONS" :key="option.value"
-            @click="selectedFormat = option.value"
-            class="rounded-2xl ring-1 px-4 py-3 text-left transition"
-            :class="selectedFormat === option.value ? 'ring-blue-500 bg-blue-50/50' : 'ring-slate-200 hover:ring-slate-300 bg-white'">
-            <div class="flex items-center justify-between gap-3">
+          <div class="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <button v-for="option in FORMAT_OPTIONS" :key="option.value"
+              @click="selectedFormat = option.value"
+              class="rounded-2xl ring-1 px-3 py-2.5 text-left transition"
+              :class="selectedFormat === option.value ? 'ring-blue-500 bg-blue-50/50' : 'ring-slate-200 hover:ring-slate-300 bg-white'">
               <p class="text-sm font-semibold text-slate-800">{{ option.label }}</p>
-              <span v-if="selectedFormat === option.value" class="text-xs font-bold text-blue-600">Selected</span>
+              <p class="text-xs text-slate-500 mt-0.5">{{ option.description }}</p>
+            </button>
+          </div>
+
+          <label class="block space-y-1.5">
+            <span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Filename (optional)</span>
+            <input v-model="filename" type="text" placeholder="Leave blank to auto-generate"
+              class="w-full ring-1 ring-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+          </label>
+        </div>
+
+        <!-- Live preview panel -->
+        <div class="border-t border-slate-100">
+          <!-- Loading -->
+          <div v-if="previewing" class="px-5 py-6 flex items-center gap-3 text-sm text-slate-400">
+            <svg class="animate-spin h-4 w-4 text-blue-500 shrink-0" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+            </svg>
+            Rendering preview…
+          </div>
+
+          <!-- Error -->
+          <div v-else-if="previewError" class="px-5 py-4 text-sm text-red-600 bg-red-50">
+            Preview failed: {{ previewError }}
+          </div>
+
+          <!-- Empty state (no versions loaded yet) -->
+          <div v-else-if="!previewResult" class="px-5 py-6 text-center text-sm text-slate-400">
+            Load a project scope and select a version to see a live preview here.
+          </div>
+
+          <!-- Preview content -->
+          <template v-else>
+            <div class="px-5 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-xs font-semibold text-slate-400 uppercase tracking-wide shrink-0">Preview</span>
+                <span class="bg-white ring-1 ring-slate-200 text-slate-600 text-xs font-mono px-2 py-0.5 rounded-full truncate">
+                  {{ previewResult.filename }}
+                </span>
+              </div>
+              <button @click="openDownloadModal"
+                class="bg-emerald-600 text-white rounded-xl px-3 py-1.5 text-xs font-semibold hover:bg-emerald-700 transition whitespace-nowrap shrink-0">
+                Download ↓
+              </button>
             </div>
-            <p class="text-xs text-slate-500 mt-1">{{ option.description }}</p>
-          </button>
-        </div>
-
-        <label class="block space-y-1.5">
-          <span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Filename</span>
-          <input v-model="filename" type="text" placeholder="Optional custom name"
-            class="w-full ring-1 ring-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
-        </label>
-
-        <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-          <p class="text-xs text-slate-400">If no filename is provided, the service will generate one and append the correct extension.</p>
-          <div class="flex gap-2 shrink-0">
-            <button @click="previewExport" :disabled="previewing || downloading"
-              class="ring-1 ring-slate-200 text-slate-700 bg-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-slate-50 transition disabled:opacity-40 whitespace-nowrap">
-              {{ previewing ? 'Loading…' : 'Preview' }}
-            </button>
-            <button @click="downloadExport" :disabled="downloading || previewing"
-              class="bg-emerald-600 text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-emerald-700 transition disabled:opacity-40 whitespace-nowrap">
-              {{ downloading ? 'Preparing…' : 'Download' }}
-            </button>
-          </div>
-        </div>
-
-        <div v-if="previewError" class="text-sm text-red-600">{{ previewError }}</div>
-        <div v-if="downloadError" class="text-sm text-red-600">{{ downloadError }}</div>
-      </section>
-
-      <!-- Preview panel -->
-      <section v-if="previewResult" id="export-preview" class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
-        <div class="px-5 py-3 border-b border-slate-50 flex items-center justify-between gap-3">
-          <div class="flex items-center gap-2 min-w-0">
-            <h2 class="font-semibold text-slate-900 text-sm shrink-0">Preview</h2>
-            <span class="bg-slate-100 text-slate-500 text-xs font-mono px-2 py-0.5 rounded-full truncate">
-              {{ previewResult.filename }}
-            </span>
-          </div>
-          <div class="flex items-center gap-2 shrink-0">
-            <button @click="downloadExport" :disabled="downloading"
-              class="bg-emerald-600 text-white rounded-xl px-3 py-1.5 text-xs font-semibold hover:bg-emerald-700 transition disabled:opacity-40 whitespace-nowrap">
-              {{ downloading ? 'Preparing…' : 'Download this' }}
-            </button>
-            <button @click="previewResult = null"
-              class="text-slate-400 hover:text-slate-700 transition text-lg leading-none px-1">×</button>
-          </div>
-        </div>
-        <div class="overflow-x-auto">
-          <pre class="px-5 py-4 text-xs text-slate-700 leading-relaxed whitespace-pre font-mono bg-slate-50/50 max-h-[60vh] overflow-y-auto">{{ previewResult.content }}</pre>
+            <pre class="px-5 py-4 text-xs text-slate-700 leading-relaxed whitespace-pre font-mono bg-white max-h-[55vh] overflow-y-auto overflow-x-auto">{{ previewResult.content }}</pre>
+          </template>
         </div>
       </section>
 
     </main>
+
+    <!-- Download confirmation modal -->
+    <Teleport to="body">
+      <div v-if="showDownloadModal"
+        class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/30 backdrop-blur-sm"
+        @click.self="closeDownloadModal">
+        <div class="bg-white rounded-2xl ring-1 ring-slate-900/10 shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh]">
+
+          <!-- Modal header -->
+          <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+            <div class="min-w-0">
+              <h3 class="font-semibold text-slate-900 text-sm">Confirm download</h3>
+              <p v-if="previewResult" class="text-xs text-slate-400 font-mono mt-0.5 truncate">{{ previewResult.filename }}</p>
+            </div>
+            <button @click="closeDownloadModal" class="text-slate-400 hover:text-slate-700 transition text-xl leading-none px-1 shrink-0">×</button>
+          </div>
+
+          <!-- Preview content inside modal -->
+          <div class="overflow-y-auto flex-1 min-h-0">
+            <div v-if="previewing" class="px-5 py-8 flex items-center justify-center gap-2 text-sm text-slate-400">
+              <svg class="animate-spin h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              Loading preview…
+            </div>
+            <pre v-else-if="previewResult"
+              class="px-5 py-4 text-xs text-slate-700 leading-relaxed whitespace-pre font-mono bg-slate-50">{{ previewResult.content }}</pre>
+            <div v-else class="px-5 py-6 text-sm text-slate-400 text-center">
+              No preview available.
+            </div>
+          </div>
+
+          <!-- Modal footer -->
+          <div class="px-5 py-4 border-t border-slate-100 flex flex-col gap-2 shrink-0">
+            <div v-if="downloadError" class="text-sm text-red-600 bg-red-50 ring-1 ring-red-200 rounded-xl px-3 py-2">
+              {{ downloadError }}
+            </div>
+            <div class="flex gap-2 justify-end">
+              <button @click="closeDownloadModal"
+                class="rounded-xl px-4 py-2 text-sm font-semibold ring-1 ring-slate-200 text-slate-600 hover:bg-slate-50 transition">
+                Cancel
+              </button>
+              <button @click="confirmDownload" :disabled="downloading"
+                class="rounded-xl px-5 py-2 text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition disabled:opacity-40">
+                {{ downloading ? 'Downloading…' : 'Download' }}
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </Teleport>
+
   </div>
 </template>
