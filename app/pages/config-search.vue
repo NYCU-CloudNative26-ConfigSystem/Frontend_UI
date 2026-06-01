@@ -27,15 +27,19 @@ async function runSearch(q: string) {
     // 1. CT text search (name, proj_id, cmp_id)
     const ctResults = await api.configTable.search({ q, limit: 50 }, auth.token).catch(() => [] as ConfigHistoryItem[])
 
-    // 2. SSOT key search: find TruthNodes matching the alias text
+    // 2. SSOT key + value search → resolve to NameNode UUIDs → CT search
     let keyResults: ConfigHistoryItem[] = []
     try {
-      const ssotHits = await api.ssot.search(q, '', auth.token)
-      // Fetch each TruthNode to get its latestName (NameNode UUID stored in CT.key)
+      const [keyHits, valHits] = await Promise.all([
+        api.ssot.search(q, '', auth.token).catch(() => []),
+        api.ssot.searchByValue(q, '', '', auth.token).catch(() => []),
+      ])
+      const allTruthIds = [...new Set([...keyHits, ...valHits].map(h => h.truth))].slice(0, 10)
+
       const nameNodeUuids = (
         await Promise.all(
-          ssotHits.slice(0, 5).map(hit =>
-            api.ssot.getTruthNode(hit.truth, auth.token)
+          allTruthIds.map(truthId =>
+            api.ssot.getTruthNode(truthId, auth.token)
               .then(tn => tn.latestName)
               .catch(() => null)
           )
@@ -45,7 +49,7 @@ async function runSearch(q: string) {
       if (nameNodeUuids.length > 0) {
         keyResults = await api.configTable.search({ key_uuids: nameNodeUuids, limit: 50 }, auth.token).catch(() => [])
       }
-    } catch { /* SSOT unreachable — skip key search */ }
+    } catch { /* SSOT unreachable — skip key/value search */ }
 
     // 3. Merge and deduplicate by config_relation_uuid, newest first
     const seen = new Set<string>()
@@ -94,9 +98,9 @@ function goToSnapshot(item: ConfigHistoryItem) {
           v-model="query"
           type="text"
           autofocus
-          placeholder="Search by config name, project, company, or key alias…"
+          placeholder="Search by config name, project, company, key alias, or value…"
           class="w-full ring-1 ring-slate-200 rounded-xl px-4 py-3 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
-        <p class="text-xs text-slate-400 mt-2">Results appear as you type. Key alias search resolves through SSOT.</p>
+        <p class="text-xs text-slate-400 mt-2">Results appear as you type. Key and value search resolves through SSOT — sensitive values are never matched.</p>
       </div>
 
       <!-- Loading -->
