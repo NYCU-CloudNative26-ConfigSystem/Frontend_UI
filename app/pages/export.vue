@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CompanyResponse, ConfigHistoryItem, ExportDownloadPayload, ProjectResponse } from '~/composables/useApi'
+import type { CompanyResponse, ConfigHistoryItem, ExportDownloadPayload, ExportPreviewResponse, ProjectResponse } from '~/composables/useApi'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -22,6 +22,9 @@ const selectedVersionUuid = ref('')
 const versions = ref<ConfigHistoryItem[]>([])
 const loadingVersions = ref(false)
 const downloading = ref(false)
+const previewing = ref(false)
+const previewResult = ref<ExportPreviewResponse | null>(null)
+const previewError = ref('')
 const loadError = ref('')
 const downloadError = ref('')
 const notice = ref('')
@@ -175,6 +178,34 @@ async function loadVersions() {
     loadError.value = error instanceof Error ? error.message : 'Failed to load versions'
   } finally {
     loadingVersions.value = false
+  }
+}
+
+async function previewExport() {
+  previewError.value = ''
+  previewResult.value = null
+  if (!projId.value || !cmpId.value) {
+    previewError.value = 'Project ID and Company ID are required.'
+    return
+  }
+  previewing.value = true
+  try {
+    const payload: ExportDownloadPayload = {
+      proj_id: projId.value,
+      cmp_id: cmpId.value,
+      environment: environment.value,
+      format: selectedFormat.value,
+      version_uuid: selectedVersionUuid.value || null,
+      filename: filename.value.trim() || null,
+    }
+    previewResult.value = await api.export.preview(payload, auth.token)
+    // Scroll preview into view after render
+    await nextTick()
+    document.getElementById('export-preview')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  } catch (error: unknown) {
+    previewError.value = error instanceof Error ? error.message : 'Preview failed'
+  } finally {
+    previewing.value = false
   }
 }
 
@@ -398,14 +429,45 @@ onMounted(async () => {
 
         <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
           <p class="text-xs text-slate-400">If no filename is provided, the service will generate one and append the correct extension.</p>
-          <button @click="downloadExport" :disabled="downloading"
-            class="bg-emerald-600 text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-emerald-700 transition disabled:opacity-40 whitespace-nowrap">
-            {{ downloading ? 'Preparing…' : 'Download export' }}
-          </button>
+          <div class="flex gap-2 shrink-0">
+            <button @click="previewExport" :disabled="previewing || downloading"
+              class="ring-1 ring-slate-200 text-slate-700 bg-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-slate-50 transition disabled:opacity-40 whitespace-nowrap">
+              {{ previewing ? 'Loading…' : 'Preview' }}
+            </button>
+            <button @click="downloadExport" :disabled="downloading || previewing"
+              class="bg-emerald-600 text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-emerald-700 transition disabled:opacity-40 whitespace-nowrap">
+              {{ downloading ? 'Preparing…' : 'Download' }}
+            </button>
+          </div>
         </div>
 
+        <div v-if="previewError" class="text-sm text-red-600">{{ previewError }}</div>
         <div v-if="downloadError" class="text-sm text-red-600">{{ downloadError }}</div>
       </section>
+
+      <!-- Preview panel -->
+      <section v-if="previewResult" id="export-preview" class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-50 flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2 min-w-0">
+            <h2 class="font-semibold text-slate-900 text-sm shrink-0">Preview</h2>
+            <span class="bg-slate-100 text-slate-500 text-xs font-mono px-2 py-0.5 rounded-full truncate">
+              {{ previewResult.filename }}
+            </span>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <button @click="downloadExport" :disabled="downloading"
+              class="bg-emerald-600 text-white rounded-xl px-3 py-1.5 text-xs font-semibold hover:bg-emerald-700 transition disabled:opacity-40 whitespace-nowrap">
+              {{ downloading ? 'Preparing…' : 'Download this' }}
+            </button>
+            <button @click="previewResult = null"
+              class="text-slate-400 hover:text-slate-700 transition text-lg leading-none px-1">×</button>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <pre class="px-5 py-4 text-xs text-slate-700 leading-relaxed whitespace-pre font-mono bg-slate-50/50 max-h-[60vh] overflow-y-auto">{{ previewResult.content }}</pre>
+        </div>
+      </section>
+
     </main>
   </div>
 </template>

@@ -122,6 +122,12 @@ export interface ExportDownloadPayload {
   filename?: string | null
 }
 
+export interface ExportPreviewResponse {
+  content: string
+  format: string
+  filename: string
+}
+
 export interface ConfigApprovalResponse {
   config_relation_uuid: string
   approval_status: string
@@ -435,6 +441,11 @@ export function useApi() {
         req<ConfigHistoryItem[]>(
           `${BASE.export}/api/v1/exports/versions?proj_id=${encodeURIComponent(projId)}&cmp_id=${encodeURIComponent(cmpId)}&environment=${encodeURIComponent(environment)}`,
           { headers: { Authorization: `Bearer ${token}` } },
+        ),
+      preview: (payload: ExportDownloadPayload, token: string) =>
+        req<ExportPreviewResponse>(
+          `${BASE.export}/api/v1/exports/preview`,
+          { method: 'POST', body: JSON.stringify(payload), headers: { Authorization: `Bearer ${token}` } },
         ),
       download: (payload: ExportDownloadPayload, token: string) =>
         reqBlob(
