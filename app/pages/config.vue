@@ -266,6 +266,9 @@ onMounted(async () => {
   if (route.query.from) {
     await loadFromSnapshot(route.query.from as string)
   }
+  if (route.query.editPending) {
+    await loadFromSnapshot(route.query.editPending as string)
+  }
 })
 
 async function loadLevel1() {
@@ -700,14 +703,23 @@ async function submitConfig() {
       })),
     }, auth.token)
 
+    const entries = ssotRes.entries.map<ConfigWriteEntry>(e => ({
+      key: e.nameId, val: e.valRef, group_entries: e.groupEntries,
+    }))
+
+    const editPendingUuid = route.query.editPending as string | undefined
+    if (editPendingUuid) {
+      await api.configTable.updatePending(editPendingUuid, entries, auth.token)
+      await router.push(`/config-snapshot/${editPendingUuid}`)
+      return
+    }
+
     await api.configTable.writeConfig({
       proj_id: projId.value,
       cmp_id: cmpId.value,
       environment: envId.value,
       user_id: userName.value || 'unknown',
-      entries: ssotRes.entries.map<ConfigWriteEntry>(e => ({
-        key: e.nameId, val: e.valRef, group_entries: e.groupEntries,
-      })),
+      entries,
       template_version_uuid: publishedTemplateVersionUuid.value ?? undefined,
       change_description: changeDescription.value.trim() || undefined,
       source_snapshot_uuid: (route.query.from as string) || undefined,
@@ -1359,7 +1371,7 @@ async function submitConfig() {
 
             <button @click="submitConfig" :disabled="submitting || rows.length === 0"
               class="bg-blue-600 text-white rounded-xl px-5 py-2.5 text-sm font-semibold hover:bg-blue-700 transition disabled:opacity-40 mx-3">
-              {{ submitting ? 'Saving…' : 'Save Snapshot' }}
+              {{ submitting ? 'Saving…' : ($route.query.editPending ? 'Save Changes' : 'Save Snapshot') }}
             </button>
           </div>
         </div>
