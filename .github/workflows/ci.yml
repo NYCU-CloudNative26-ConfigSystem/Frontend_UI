@@ -103,7 +103,7 @@ jobs:
         run: |
           export IMAGE_FRONTEND="${GAR_LOCATION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPO}/frontend:${GITHUB_SHA}"
           envsubst '${IMAGE_FRONTEND}${K8S_NAMESPACE}' < infra/k8s/services/frontend.yaml | kubectl apply -f -
-          kubectl rollout status deployment/service-frontendui -n "${K8S_NAMESPACE}" --timeout=300s
+          kubectl rollout status deployment/service-frontendui -n "${K8S_NAMESPACE}" --timeout=600s
 
   deploy-production:
     name: Deploy · Production
@@ -156,4 +156,4 @@ jobs:
         run: |
           export IMAGE_FRONTEND="${GAR_LOCATION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPO}/frontend:${GITHUB_SHA}"
           envsubst '${IMAGE_FRONTEND}${K8S_NAMESPACE}' < infra/k8s/services/frontend.yaml | kubectl apply -f -
-          kubectl rollout status deployment/service-frontendui -n "${K8S_NAMESPACE}" --timeout=300s
+          kubectl rollout status deployment/service-frontendui -n "${K8S_NAMESPACE}" --timeout=600s
