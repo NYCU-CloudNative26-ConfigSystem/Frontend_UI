@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import type { ConfigHistoryItem } from '~/composables/useApi'
+
 definePageMeta({ middleware: 'auth' })
 
 const api = useApi()
+const auth = useAuthStore()
 
 const statuses = ref<Record<string, 'ok' | 'error' | 'checking'>>({
   login: 'checking',
@@ -9,6 +12,18 @@ const statuses = ref<Record<string, 'ok' | 'error' | 'checking'>>({
   ssot: 'checking',
   export: 'checking',
 })
+
+const pendingReviews = ref<ConfigHistoryItem[]>([])
+const pendingReviewsLoading = ref(false)
+
+async function loadPendingReviews() {
+  pendingReviewsLoading.value = true
+  try {
+    pendingReviews.value = await api.configTable.pendingReviews(auth.token, { limit: 5 }).catch(() => [])
+  } finally {
+    pendingReviewsLoading.value = false
+  }
+}
 
 async function checkHealth() {
   const checks: [string, () => Promise<{ status: string }>][] = [
@@ -29,6 +44,7 @@ async function checkHealth() {
 }
 
 onMounted(checkHealth)
+onMounted(loadPendingReviews)
 </script>
 
 <template>
@@ -79,6 +95,15 @@ onMounted(checkHealth)
           <p class="text-xs text-slate-400 mt-0.5">Find configs by name, project, company, or key</p>
         </NuxtLink>
 
+        <NuxtLink to="/review-pending"
+          class="group bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 hover:ring-blue-500/40 hover:shadow-sm transition-all">
+          <div class="w-9 h-9 bg-rose-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-rose-200 transition">
+            <span class="text-rose-700 text-xs font-bold">REV</span>
+          </div>
+          <p class="font-semibold text-slate-800 text-sm">Pending Review</p>
+          <p class="text-xs text-slate-400 mt-0.5">Jump straight into pending snapshots</p>
+        </NuxtLink>
+
         <NuxtLink to="/export"
           class="group bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 hover:ring-blue-500/40 hover:shadow-sm transition-all">
           <div class="w-9 h-9 bg-amber-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-amber-200 transition">
@@ -87,6 +112,39 @@ onMounted(checkHealth)
           <p class="font-semibold text-slate-800 text-sm">Config Export</p>
           <p class="text-xs text-slate-400 mt-0.5">Download JSON, YAML, ENV, XML</p>
         </NuxtLink>
+      </div>
+
+      <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-50">
+          <div>
+            <h2 class="font-semibold text-slate-900 text-sm">Pending review</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Snapshots waiting for reviewer action.</p>
+          </div>
+          <NuxtLink to="/review-pending" class="text-xs font-medium text-blue-600 hover:text-blue-700 transition">
+            View all pending reviews
+          </NuxtLink>
+        </div>
+        <div v-if="pendingReviewsLoading" class="px-5 py-8 text-sm text-slate-400">Loading pending reviews…</div>
+        <div v-else-if="pendingReviews.length === 0" class="px-5 py-8 text-sm text-slate-400">
+          No pending reviews right now.
+        </div>
+        <div v-else class="divide-y divide-slate-50">
+          <NuxtLink
+            v-for="item in pendingReviews"
+            :key="item.config_relation_uuid"
+            :to="`/config-snapshot/${item.config_relation_uuid}?proj=${item.proj_id ?? ''}&cmp=${item.cmp_id ?? ''}&env=${item.environment}`"
+            class="block px-5 py-4 hover:bg-slate-50 transition">
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0">
+                <p class="font-semibold text-slate-900 text-sm truncate">{{ item.name ?? item.config_relation_uuid }}</p>
+                <p class="text-xs text-slate-400 mt-0.5">
+                  {{ item.proj_id ?? '—' }} / {{ item.cmp_id ?? '—' }} · {{ item.environment }} · {{ item.entry_count }} entries
+                </p>
+              </div>
+              <StatusBadge :status="item.approval_status" />
+            </div>
+          </NuxtLink>
+        </div>
       </div>
 
       <!-- Service health -->

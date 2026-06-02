@@ -390,6 +390,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </div>
         </div>
 
+          <ReviewerSimilarityReport v-if="canReview" :config-uuid="uuid" :compact="true" :limit="4" />
+
         <!-- Key/value table -->
         <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
           <div class="px-5 py-3 border-b border-slate-50">
