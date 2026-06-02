@@ -442,82 +442,93 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </div>
         </div>
 
-        <!-- Lineage (horizontal flow) -->
+        <!-- Lineage timeline -->
         <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
-          <h3 class="text-sm font-semibold text-slate-900 mb-4">Lineage</h3>
+          <h3 class="text-sm font-semibold text-slate-900 mb-5">Lineage</h3>
 
-          <div class="flex items-start gap-2 overflow-x-auto pb-1">
+          <div class="relative">
+            <!-- Gradient vertical spine -->
+            <div class="absolute left-[6px] top-2 bottom-2 w-px bg-gradient-to-b from-slate-200 via-indigo-300 to-slate-200"></div>
 
-            <!-- Parent node -->
-            <NuxtLink v-if="config.promoted_from_uuid"
-              :to="`/config-snapshot/${config.promoted_from_uuid}?proj=${projId}&cmp=${cmpId}&env=${sourceEnvironment ?? ''}`"
-              class="group shrink-0">
-              <div class="rounded-xl bg-slate-50 ring-1 ring-slate-200 px-3 py-2.5 text-center group-hover:ring-indigo-300 group-hover:bg-indigo-50/40 transition w-[88px]">
-                <p class="text-xs font-semibold text-slate-700 truncate">{{ config.cmp_id || config.promoted_from_uuid.slice(0, 8) }}</p>
-                <p class="text-[10px] text-slate-400 mt-0.5 capitalize truncate">{{ sourceEnvironment ?? config.environment }}</p>
-                <span v-if="sourceApprovalStatus" :class="['mt-1 inline-block text-[9px] font-medium px-1.5 py-0.5 rounded-full', {
-                  'bg-yellow-100 text-yellow-700': sourceApprovalStatus === 'pending',
-                  'bg-green-100 text-green-700':   sourceApprovalStatus === 'approved',
-                  'bg-red-100 text-red-600':        sourceApprovalStatus === 'rejected',
-                }]">{{ sourceApprovalStatus }}</span>
-                <span v-else class="mt-1 inline-block text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">parent</span>
+            <div class="space-y-3">
+
+              <!-- Parent node -->
+              <NuxtLink v-if="config.promoted_from_uuid"
+                :to="`/config-snapshot/${config.promoted_from_uuid}?proj=${projId}&cmp=${cmpId}&env=${sourceEnvironment ?? ''}`"
+                class="relative flex items-start gap-4 group">
+                <div :class="['relative z-10 mt-1 w-3.5 h-3.5 rounded-full ring-2 ring-white shrink-0 group-hover:scale-110 transition-transform', {
+                  'bg-yellow-400': sourceApprovalStatus === 'pending',
+                  'bg-red-400':    sourceApprovalStatus === 'rejected',
+                  'bg-slate-300':  sourceApprovalStatus === null,
+                  'bg-green-400':  sourceApprovalStatus === 'approved',
+                }]"></div>
+                <div class="flex-1 rounded-xl bg-slate-50 ring-1 ring-slate-200 px-3.5 py-3 group-hover:ring-indigo-300 group-hover:bg-indigo-50/40 transition">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-xs font-semibold text-slate-700">{{ config.cmp_id || config.promoted_from_uuid.slice(0, 8) }}</span>
+                    <span v-if="sourceApprovalStatus" :class="['text-[10px] font-medium px-2 py-0.5 rounded-full', {
+                      'bg-yellow-100 text-yellow-700': sourceApprovalStatus === 'pending',
+                      'bg-green-100 text-green-700':   sourceApprovalStatus === 'approved',
+                      'bg-red-100 text-red-600':        sourceApprovalStatus === 'rejected',
+                    }]">{{ sourceApprovalStatus }}</span>
+                  </div>
+                  <p class="mt-0.5 text-[11px] text-slate-400 capitalize">{{ sourceEnvironment ?? config.environment }} · parent</p>
+                </div>
+              </NuxtLink>
+
+              <!-- Origin label (no parent) -->
+              <div v-else class="relative flex items-center gap-4">
+                <div class="relative z-10 w-3.5 h-3.5 rounded-full border-2 border-slate-300 bg-white shrink-0"></div>
+                <span class="text-[11px] text-slate-400 italic">origin snapshot</span>
               </div>
-            </NuxtLink>
 
-            <!-- Origin label when no parent -->
-            <div v-else class="shrink-0">
-              <div class="rounded-xl border-2 border-dashed border-slate-200 px-3 py-2.5 text-center w-[88px]">
-                <p class="text-[10px] text-slate-400 italic leading-snug">origin</p>
+              <!-- Current snapshot -->
+              <div class="relative flex items-start gap-4">
+                <div class="relative z-10 mt-1 shrink-0">
+                  <div class="w-3.5 h-3.5 rounded-full bg-indigo-500 ring-2 ring-white"></div>
+                  <div class="absolute inset-0 rounded-full bg-indigo-400 animate-ping opacity-25"></div>
+                </div>
+                <div class="flex-1 rounded-xl bg-indigo-50 ring-2 ring-indigo-400 px-3.5 py-3">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-xs font-semibold text-indigo-800">{{ config.cmp_id || uuid.slice(0, 8) }}</span>
+                    <span :class="['text-[10px] font-medium px-2 py-0.5 rounded-full', {
+                      'bg-yellow-100 text-yellow-700': localApprovalStatus === 'pending',
+                      'bg-green-100 text-green-700':   localApprovalStatus === 'approved',
+                      'bg-red-100 text-red-600':        localApprovalStatus === 'rejected',
+                    }]">{{ localApprovalStatus }}</span>
+                  </div>
+                  <p class="mt-0.5 text-[11px] text-indigo-400 capitalize">{{ config.environment }} · this snapshot</p>
+                </div>
               </div>
-            </div>
 
-            <!-- Arrow -->
-            <div class="flex items-center self-center text-slate-300 shrink-0 text-lg leading-none select-none">›</div>
-
-            <!-- Current snapshot -->
-            <div class="shrink-0 relative">
-              <div class="rounded-xl bg-indigo-50 ring-2 ring-indigo-400 px-3 py-2.5 text-center w-[88px]">
-                <p class="text-xs font-semibold text-indigo-800 truncate">{{ config.cmp_id || uuid.slice(0, 8) }}</p>
-                <p class="text-[10px] text-indigo-400 mt-0.5 capitalize truncate">{{ config.environment }}</p>
-                <span :class="['mt-1 inline-block text-[9px] font-medium px-1.5 py-0.5 rounded-full', {
-                  'bg-yellow-100 text-yellow-700': localApprovalStatus === 'pending',
-                  'bg-green-100 text-green-700':   localApprovalStatus === 'approved',
-                  'bg-red-100 text-red-600':        localApprovalStatus === 'rejected',
-                }]">{{ localApprovalStatus }}</span>
-              </div>
-              <div class="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></div>
-            </div>
-
-            <!-- Arrow + children (only when children exist or still loading) -->
-            <template v-if="children.length > 0">
-              <div class="flex items-start self-start pt-3 text-slate-300 shrink-0 text-lg leading-none select-none">›</div>
-              <div class="flex flex-col gap-2 shrink-0">
-                <NuxtLink v-for="child in children" :key="child.config_relation_uuid"
-                  :to="`/config-snapshot/${child.config_relation_uuid}?proj=${projId}&cmp=${cmpId}&env=${child.environment}`"
-                  class="group">
-                  <div class="rounded-xl bg-slate-50 ring-1 ring-slate-200 px-3 py-2.5 text-center group-hover:ring-indigo-300 group-hover:bg-indigo-50/40 transition w-[88px]">
-                    <p class="text-xs font-semibold text-slate-700 truncate">{{ child.cmp_id || child.config_relation_uuid.slice(0, 8) }}</p>
-                    <p class="text-[10px] text-slate-400 mt-0.5 capitalize truncate">{{ child.environment }}</p>
-                    <span :class="['mt-1 inline-block text-[9px] font-medium px-1.5 py-0.5 rounded-full', {
+              <!-- Child nodes -->
+              <NuxtLink v-for="child in children" :key="child.config_relation_uuid"
+                :to="`/config-snapshot/${child.config_relation_uuid}?proj=${projId}&cmp=${cmpId}&env=${child.environment}`"
+                class="relative flex items-start gap-4 group">
+                <div :class="['relative z-10 mt-1 w-3.5 h-3.5 rounded-full ring-2 ring-white shrink-0 group-hover:scale-110 transition-transform', {
+                  'bg-yellow-400': child.approval_status === 'pending',
+                  'bg-green-400':  child.approval_status === 'approved',
+                  'bg-red-400':    child.approval_status === 'rejected',
+                }]"></div>
+                <div class="flex-1 rounded-xl bg-slate-50 ring-1 ring-slate-200 px-3.5 py-3 group-hover:ring-indigo-300 group-hover:bg-indigo-50/40 transition">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-xs font-semibold text-slate-700">{{ child.cmp_id || child.config_relation_uuid.slice(0, 8) }}</span>
+                    <span :class="['text-[10px] font-medium px-2 py-0.5 rounded-full', {
                       'bg-yellow-100 text-yellow-700': child.approval_status === 'pending',
                       'bg-green-100 text-green-700':   child.approval_status === 'approved',
                       'bg-red-100 text-red-600':        child.approval_status === 'rejected',
                     }]">{{ child.approval_status }}</span>
                   </div>
-                </NuxtLink>
-              </div>
-            </template>
-
-            <!-- No children placeholder (shown only after load completes) -->
-            <template v-else-if="childrenLoaded">
-              <div class="flex items-center self-center text-slate-300 shrink-0 text-lg leading-none select-none">›</div>
-              <div class="shrink-0">
-                <div class="rounded-xl border-2 border-dashed border-slate-200 px-3 py-2.5 text-center w-[88px]">
-                  <p class="text-[10px] text-slate-400 italic leading-snug">no branches</p>
+                  <p class="mt-0.5 text-[11px] text-slate-400 capitalize">{{ child.environment }}</p>
                 </div>
-              </div>
-            </template>
+              </NuxtLink>
 
+              <!-- No children placeholder (shown only after load completes) -->
+              <div v-if="childrenLoaded && children.length === 0" class="relative flex items-center gap-4">
+                <div class="relative z-10 w-3.5 h-3.5 rounded-full border-2 border-dashed border-slate-300 shrink-0"></div>
+                <span class="text-[11px] text-slate-400 italic">no branches yet</span>
+              </div>
+
+            </div>
           </div>
         </div>
 
