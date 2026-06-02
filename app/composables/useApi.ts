@@ -255,14 +255,61 @@ const BASE = {
   ssot: "/api/ssot",
 } as const;
 
+// ── Token refresh ─────────────────────────────────────────────────────────────
+
+// Deduplicates concurrent refresh calls — only one in-flight at a time.
+let _refreshPromise: Promise<string | null> | null = null
+
+async function tryRefreshToken(): Promise<string | null> {
+  if (_refreshPromise) return _refreshPromise
+  _refreshPromise = (async () => {
+    try {
+      const refreshToken = import.meta.client ? localStorage.getItem('refresh_token') : null
+      if (!refreshToken) return null
+
+      const res = await fetch(`${BASE.login}/api/v1/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      })
+      if (!res.ok) return null
+
+      const data = await res.json()
+      const newToken: string = data.access_token
+      if (import.meta.client) localStorage.setItem('access_token', newToken)
+
+      // Update Pinia store if available in this context
+      try { useAuthStore().setToken(newToken) } catch {}
+
+      return newToken
+    } catch {
+      return null
+    } finally {
+      _refreshPromise = null
+    }
+  })()
+  return _refreshPromise
+}
+
 // ── Request helper ────────────────────────────────────────────────────────────
 
-async function req<T>(url: string, opts: RequestInit = {}): Promise<T> {
+async function req<T>(url: string, opts: RequestInit = {}, _retried = false): Promise<T> {
   const { headers: optsHeaders, ...restOpts } = opts
-  const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(optsHeaders as Record<string, string>) },
-    ...restOpts,
-  });
+  const mergedHeaders = { "Content-Type": "application/json", ...(optsHeaders as Record<string, string>) }
+  const res = await fetch(url, { headers: mergedHeaders, ...restOpts })
+
+  // Attempt token refresh on 401, then retry once
+  if (res.status === 401 && !_retried) {
+    const newToken = await tryRefreshToken()
+    if (newToken) {
+      const retryHeaders = { ...mergedHeaders, Authorization: `Bearer ${newToken}` }
+      return req<T>(url, { ...restOpts, headers: retryHeaders }, true)
+    }
+    // Refresh failed — force logout
+    try { useAuthStore().logout() } catch {}
+    throw new Error('Session expired. Please log in again.')
+  }
+
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`
     try {
@@ -277,7 +324,7 @@ async function req<T>(url: string, opts: RequestInit = {}): Promise<T> {
   if (res.status === 204 || res.headers.get('content-length') === '0') {
     return undefined as T
   }
-  return res.json();
+  return res.json()
 }
 
 async function reqBlob(url: string, opts: RequestInit = {}): Promise<{ blob: Blob; headers: Headers }> {

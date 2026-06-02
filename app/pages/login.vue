@@ -13,6 +13,7 @@ async function login() {
   try {
     const res = await api.auth.login(email.value, password.value)
     auth.setToken(res.access_token)
+    if (res.refresh_token) auth.setRefreshToken(res.refresh_token)
     navigateTo('/home')
   } catch (e: unknown) {
     setError(e, 'Login failed. Please try again.')
