@@ -118,6 +118,57 @@ export interface ConfigHistoryItem {
   cmp_id?: string | null
 }
 
+export interface ReviewSimilaritySourceEntry {
+  path: string
+  key_uuid: string
+  key_alias: string
+  value_ref: string
+  value_display: string
+  is_group: boolean
+}
+
+export interface ReviewSimilarityEntryMatch {
+  source_path: string
+  source_key_alias: string
+  source_value_display: string
+  source_value_ref: string
+  candidate_path: string
+  candidate_key_alias: string
+  candidate_value_display: string
+  candidate_value_ref: string
+  match_kind: string
+  score: number
+  display_state: 'shown' | 'hidden'
+  display_reason?: string | null
+}
+
+export interface ReviewSimilarityCandidate {
+  config_relation_uuid: string
+  date_created: string
+  environment: string
+  approval_status: string
+  score: number
+  name?: string | null
+  proj_id?: string | null
+  cmp_id?: string | null
+  matched_entries: ReviewSimilarityEntryMatch[]
+}
+
+export interface ReviewSimilarityReport {
+  config_relation_uuid: string
+  date_created: string
+  environment: string
+  approval_status: string
+  created_by?: string | null
+  name?: string | null
+  proj_id?: string | null
+  cmp_id?: string | null
+  source_entry_count: number
+  candidate_count: number
+  source_entries: ReviewSimilaritySourceEntry[]
+  candidates: ReviewSimilarityCandidate[]
+}
+
 export interface ExportDownloadPayload {
   proj_id: string
   cmp_id: string
@@ -365,7 +416,7 @@ export function useApi() {
           { method: 'POST', body: JSON.stringify({ reason }), headers: { Authorization: `Bearer ${token}` } },
         ),
       search: (
-        params: { q?: string; key_uuids?: string[]; proj_id?: string; cmp_id?: string; environment?: string; skip?: number; limit?: number },
+        params: { q?: string; key_uuids?: string[]; proj_id?: string; cmp_id?: string; environment?: string; approval_status?: string; skip?: number; limit?: number },
         token: string,
       ) => {
         const qs = new URLSearchParams()
@@ -373,6 +424,7 @@ export function useApi() {
         if (params.proj_id) qs.set('proj_id', params.proj_id)
         if (params.cmp_id) qs.set('cmp_id', params.cmp_id)
         if (params.environment) qs.set('environment', params.environment)
+        if (params.approval_status) qs.set('approval_status', params.approval_status)
         if (params.skip !== undefined) qs.set('skip', String(params.skip))
         if (params.limit !== undefined) qs.set('limit', String(params.limit))
         for (const u of params.key_uuids ?? []) qs.append('key_uuids', u)
@@ -381,11 +433,31 @@ export function useApi() {
           { headers: { Authorization: `Bearer ${token}` } },
         )
       },
+      pendingReviews: (token: string, params?: { skip?: number; limit?: number }) => {
+        const qs = new URLSearchParams()
+        if (params?.skip !== undefined) qs.set('skip', String(params.skip))
+        if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+        const suffix = qs.toString() ? `?${qs.toString()}` : ''
+        return req<ConfigHistoryItem[]>(
+          `${BASE.config}/api/v1/config/pending${suffix}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+      },
       getConfigChildren: (uuid: string, token: string) =>
         req<ConfigHistoryItem[]>(
           `${BASE.config}/api/v1/config/${encodeURIComponent(uuid)}/children`,
           { headers: { Authorization: `Bearer ${token}` } },
         ),
+      reviewSimilarityReport: (uuid: string, token: string, params?: { limit?: number; threshold?: number }) => {
+        const qs = new URLSearchParams()
+        if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+        if (params?.threshold !== undefined) qs.set('threshold', String(params.threshold))
+        const suffix = qs.toString() ? `?${qs.toString()}` : ''
+        return req<ReviewSimilarityReport>(
+          `${BASE.config}/api/v1/config/${encodeURIComponent(uuid)}/review-similarity${suffix}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+      },
     },
 
     companies: {
