@@ -442,30 +442,27 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </div>
         </div>
 
-        <!-- Lineage timeline -->
+        <!-- Lineage timeline (horizontal — left→right) -->
         <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
           <h3 class="text-sm font-semibold text-slate-900 mb-5">Lineage</h3>
 
-          <div class="relative">
-            <!-- Gradient vertical spine -->
-            <div class="absolute left-[6px] top-2 bottom-2 w-px bg-gradient-to-b from-slate-200 via-indigo-300 to-slate-200"></div>
+          <div class="flex items-start overflow-x-auto pb-1">
 
-            <div class="space-y-3">
-
-              <!-- Parent node -->
+            <!-- ── Parent ─────────────────────── -->
+            <div class="flex items-start shrink-0">
               <NuxtLink v-if="config.promoted_from_uuid"
                 :to="`/config-snapshot/${config.promoted_from_uuid}?proj=${projId}&cmp=${cmpId}&env=${sourceEnvironment ?? ''}`"
-                class="relative flex items-start gap-4 group">
+                class="flex items-start gap-3 group">
                 <div :class="['relative z-10 mt-1 w-3.5 h-3.5 rounded-full ring-2 ring-white shrink-0 group-hover:scale-110 transition-transform', {
                   'bg-yellow-400': sourceApprovalStatus === 'pending',
                   'bg-red-400':    sourceApprovalStatus === 'rejected',
                   'bg-slate-300':  sourceApprovalStatus === null,
                   'bg-green-400':  sourceApprovalStatus === 'approved',
                 }]"></div>
-                <div class="flex-1 rounded-xl bg-slate-50 ring-1 ring-slate-200 px-3.5 py-3 group-hover:ring-indigo-300 group-hover:bg-indigo-50/40 transition">
+                <div class="rounded-xl bg-slate-50 ring-1 ring-slate-200 px-3.5 py-3 w-44 group-hover:ring-indigo-300 group-hover:bg-indigo-50/40 transition">
                   <div class="flex items-center justify-between gap-2">
-                    <span class="text-xs font-semibold text-slate-700">{{ config.cmp_id || config.promoted_from_uuid.slice(0, 8) }}</span>
-                    <span v-if="sourceApprovalStatus" :class="['text-[10px] font-medium px-2 py-0.5 rounded-full', {
+                    <span class="text-xs font-semibold text-slate-700 truncate">{{ config.cmp_id || config.promoted_from_uuid.slice(0, 8) }}</span>
+                    <span v-if="sourceApprovalStatus" :class="['text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0', {
                       'bg-yellow-100 text-yellow-700': sourceApprovalStatus === 'pending',
                       'bg-green-100 text-green-700':   sourceApprovalStatus === 'approved',
                       'bg-red-100 text-red-600':        sourceApprovalStatus === 'rejected',
@@ -474,23 +471,25 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                   <p class="mt-0.5 text-[11px] text-slate-400 capitalize">{{ sourceEnvironment ?? config.environment }} · parent</p>
                 </div>
               </NuxtLink>
-
-              <!-- Origin label (no parent) -->
-              <div v-else class="relative flex items-center gap-4">
-                <div class="relative z-10 w-3.5 h-3.5 rounded-full border-2 border-slate-300 bg-white shrink-0"></div>
-                <span class="text-[11px] text-slate-400 italic">origin snapshot</span>
+              <div v-else class="flex items-start gap-3">
+                <div class="mt-1 w-3.5 h-3.5 rounded-full border-2 border-slate-300 bg-white shrink-0"></div>
+                <span class="text-[11px] text-slate-400 italic pt-1 whitespace-nowrap">origin snapshot</span>
               </div>
+              <!-- horizontal connector → current -->
+              <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-slate-300 to-indigo-300"></div>
+            </div>
 
-              <!-- Current snapshot -->
-              <div class="relative flex items-start gap-4">
+            <!-- ── Current ───────────────────── -->
+            <div class="flex items-start shrink-0">
+              <div class="flex items-start gap-3">
                 <div class="relative z-10 mt-1 shrink-0">
                   <div class="w-3.5 h-3.5 rounded-full bg-indigo-500 ring-2 ring-white"></div>
                   <div class="absolute inset-0 rounded-full bg-indigo-400 animate-ping opacity-25"></div>
                 </div>
-                <div class="flex-1 rounded-xl bg-indigo-50 ring-2 ring-indigo-400 px-3.5 py-3">
+                <div class="rounded-xl bg-indigo-50 ring-2 ring-indigo-400 px-3.5 py-3 w-44">
                   <div class="flex items-center justify-between gap-2">
-                    <span class="text-xs font-semibold text-indigo-800">{{ config.cmp_id || uuid.slice(0, 8) }}</span>
-                    <span :class="['text-[10px] font-medium px-2 py-0.5 rounded-full', {
+                    <span class="text-xs font-semibold text-indigo-800 truncate">{{ config.cmp_id || uuid.slice(0, 8) }}</span>
+                    <span :class="['text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0', {
                       'bg-yellow-100 text-yellow-700': localApprovalStatus === 'pending',
                       'bg-green-100 text-green-700':   localApprovalStatus === 'approved',
                       'bg-red-100 text-red-600':        localApprovalStatus === 'rejected',
@@ -499,36 +498,44 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                   <p class="mt-0.5 text-[11px] text-indigo-400 capitalize">{{ config.environment }} · this snapshot</p>
                 </div>
               </div>
-
-              <!-- Child nodes -->
-              <NuxtLink v-for="child in children" :key="child.config_relation_uuid"
-                :to="`/config-snapshot/${child.config_relation_uuid}?proj=${projId}&cmp=${cmpId}&env=${child.environment}`"
-                class="relative flex items-start gap-4 group">
-                <div :class="['relative z-10 mt-1 w-3.5 h-3.5 rounded-full ring-2 ring-white shrink-0 group-hover:scale-110 transition-transform', {
-                  'bg-yellow-400': child.approval_status === 'pending',
-                  'bg-green-400':  child.approval_status === 'approved',
-                  'bg-red-400':    child.approval_status === 'rejected',
-                }]"></div>
-                <div class="flex-1 rounded-xl bg-slate-50 ring-1 ring-slate-200 px-3.5 py-3 group-hover:ring-indigo-300 group-hover:bg-indigo-50/40 transition">
-                  <div class="flex items-center justify-between gap-2">
-                    <span class="text-xs font-semibold text-slate-700">{{ child.cmp_id || child.config_relation_uuid.slice(0, 8) }}</span>
-                    <span :class="['text-[10px] font-medium px-2 py-0.5 rounded-full', {
-                      'bg-yellow-100 text-yellow-700': child.approval_status === 'pending',
-                      'bg-green-100 text-green-700':   child.approval_status === 'approved',
-                      'bg-red-100 text-red-600':        child.approval_status === 'rejected',
-                    }]">{{ child.approval_status }}</span>
-                  </div>
-                  <p class="mt-0.5 text-[11px] text-slate-400 capitalize">{{ child.environment }}</p>
-                </div>
-              </NuxtLink>
-
-              <!-- No children placeholder (shown only after load completes) -->
-              <div v-if="childrenLoaded && children.length === 0" class="relative flex items-center gap-4">
-                <div class="relative z-10 w-3.5 h-3.5 rounded-full border-2 border-dashed border-slate-300 shrink-0"></div>
-                <span class="text-[11px] text-slate-400 italic">no branches yet</span>
-              </div>
-
+              <!-- horizontal connector → children (shown once load completes) -->
+              <div v-if="childrenLoaded"
+                class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-indigo-300 to-slate-300"></div>
             </div>
+
+            <!-- ── Children column (or placeholder) ── -->
+            <template v-if="childrenLoaded">
+              <div v-if="children.length" class="relative flex flex-col gap-3 shrink-0">
+                <!-- vertical spine connecting children to each other -->
+                <div v-if="children.length > 1"
+                  class="absolute left-[6px] top-2 bottom-2 w-px bg-gradient-to-b from-indigo-300 to-slate-200"></div>
+                <NuxtLink v-for="child in children" :key="child.config_relation_uuid"
+                  :to="`/config-snapshot/${child.config_relation_uuid}?proj=${projId}&cmp=${cmpId}&env=${child.environment}`"
+                  class="relative flex items-start gap-3 group">
+                  <div :class="['relative z-10 mt-1 w-3.5 h-3.5 rounded-full ring-2 ring-white shrink-0 group-hover:scale-110 transition-transform', {
+                    'bg-yellow-400': child.approval_status === 'pending',
+                    'bg-green-400':  child.approval_status === 'approved',
+                    'bg-red-400':    child.approval_status === 'rejected',
+                  }]"></div>
+                  <div class="rounded-xl bg-slate-50 ring-1 ring-slate-200 px-3.5 py-3 w-44 group-hover:ring-indigo-300 group-hover:bg-indigo-50/40 transition">
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="text-xs font-semibold text-slate-700 truncate">{{ child.cmp_id || child.config_relation_uuid.slice(0, 8) }}</span>
+                      <span :class="['text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0', {
+                        'bg-yellow-100 text-yellow-700': child.approval_status === 'pending',
+                        'bg-green-100 text-green-700':   child.approval_status === 'approved',
+                        'bg-red-100 text-red-600':        child.approval_status === 'rejected',
+                      }]">{{ child.approval_status }}</span>
+                    </div>
+                    <p class="mt-0.5 text-[11px] text-slate-400 capitalize">{{ child.environment }}</p>
+                  </div>
+                </NuxtLink>
+              </div>
+              <div v-else class="flex items-start gap-3 shrink-0">
+                <div class="mt-1 w-3.5 h-3.5 rounded-full border-2 border-dashed border-slate-300 shrink-0"></div>
+                <span class="text-[11px] text-slate-400 italic pt-1">no branches yet</span>
+              </div>
+            </template>
+
           </div>
         </div>
 
