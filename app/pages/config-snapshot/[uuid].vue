@@ -629,10 +629,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <template v-if="childrenLoaded">
               <div v-if="children.length" class="relative flex flex-col gap-3 shrink-0">
                 <div v-if="children.length > 1"
-                  class="absolute left-[6px] top-2 bottom-2 w-px bg-gradient-to-b from-indigo-300 to-slate-200"></div>
+                  :class="['absolute top-2 bottom-2 w-px bg-gradient-to-b from-indigo-300 to-slate-200', lineageView === 'deep' ? 'left-[6px]' : 'left-[88px]']"></div>
                 <LineageNode
                   v-for="child in children"
                   :key="child.config_relation_uuid"
+                  :compact="lineageView === 'deep'"
                   :label="child.name || child.config_relation_uuid.slice(0, 8)"
                   :environment="child.environment"
                   :status="child.approval_status"
