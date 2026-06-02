@@ -376,6 +376,11 @@ export function useApi() {
           { headers: { Authorization: `Bearer ${token}` } },
         )
       },
+      getConfigChildren: (uuid: string, token: string) =>
+        req<ConfigHistoryItem[]>(
+          `${BASE.config}/api/v1/config/${encodeURIComponent(uuid)}/children`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        ),
     },
 
     companies: {

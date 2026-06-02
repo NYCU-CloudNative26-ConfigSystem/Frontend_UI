@@ -1403,7 +1403,14 @@ async function submitConfig() {
                 {{ snap.change_description }}
               </p>
             </div>
-            <span class="text-slate-300 group-hover:text-blue-500 shrink-0 ml-2 transition">›</span>
+            <div class="flex items-center gap-2 shrink-0 ml-2">
+              <button
+                @click.stop="router.push({ path: '/config', query: { proj: projId, cmp: cmpId, env: envId, from: snap.config_relation_uuid } })"
+                class="rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 ring-indigo-200 text-indigo-600 hover:bg-indigo-50 transition">
+                Inherit
+              </button>
+              <span class="text-slate-300 group-hover:text-blue-500 transition">›</span>
+            </div>
           </button>
         </div>
 

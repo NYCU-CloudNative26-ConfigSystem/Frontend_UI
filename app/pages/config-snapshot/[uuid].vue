@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ConfigReadResponse, NodeResolveResponse } from '~/composables/useApi'
+import type { ConfigHistoryItem, ConfigReadResponse, NodeResolveResponse } from '~/composables/useApi'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -40,6 +40,7 @@ const rejecting = ref(false)
 const rejectError = ref('')
 const showRejectInput = ref(false)
 const rejectReason = ref('')
+const inheritEnv = ref('')
 
 const ENV_PIPELINE = ['development', 'testing', 'staging', 'production'] as const
 
@@ -71,6 +72,11 @@ const diffUnchangedCount = ref(0)
 const diffLoading = ref(false)
 const diffError = ref('')
 const sourceEnvironment = ref<string | null>(null)
+const sourceApprovalStatus = ref<string | null>(null)
+
+// Lineage children
+const children = ref<ConfigHistoryItem[]>([])
+const childrenLoaded = ref(false)
 
 function toggleReveal(valRef: string) {
   const s = new Set(revealedValues.value)
@@ -118,6 +124,7 @@ async function loadDiff() {
   try {
     const source = await api.configTable.getByUuid(config.value.promoted_from_uuid, auth.token)
     sourceEnvironment.value = source?.environment ?? null
+    sourceApprovalStatus.value = source?.approval_status ?? null
 
     const currentMap = new Map<string, string>()
     const sourceMap = new Map<string, string>()
@@ -196,8 +203,12 @@ onMounted(async () => {
     if (cfg.proj_id) projId.value = cfg.proj_id
     if (cfg.cmp_id) cmpId.value = cfg.cmp_id
     if (cfg.environment) envId.value = cfg.environment
+    inheritEnv.value = cfg.environment ?? 'production'
     await resolveRows(config.value)
     if (config.value.promoted_from_uuid) loadDiff()
+    api.configTable.getConfigChildren(uuid.value, auth.token)
+      .then(items => { children.value = items; childrenLoaded.value = true })
+      .catch(() => { childrenLoaded.value = true })
   } catch (e: unknown) {
     loadError.value = e instanceof Error ? e.message : 'Failed to load snapshot'
   } finally {
@@ -429,6 +440,96 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </div>
         </div>
 
+        <!-- Lineage timeline -->
+        <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
+          <h3 class="text-sm font-semibold text-slate-900 mb-5">Lineage</h3>
+
+          <div class="relative">
+            <!-- Gradient vertical spine -->
+            <div class="absolute left-[6px] top-2 bottom-2 w-px bg-gradient-to-b from-slate-200 via-indigo-300 to-slate-200"></div>
+
+            <div class="space-y-3">
+
+              <!-- Parent node -->
+              <NuxtLink v-if="config.promoted_from_uuid"
+                :to="`/config-snapshot/${config.promoted_from_uuid}?proj=${projId}&cmp=${cmpId}&env=${sourceEnvironment ?? ''}`"
+                class="relative flex items-start gap-4 group">
+                <div :class="['relative z-10 mt-1 w-3.5 h-3.5 rounded-full ring-2 ring-white shrink-0 group-hover:scale-110 transition-transform', {
+                  'bg-yellow-400': sourceApprovalStatus === 'pending',
+                  'bg-red-400':    sourceApprovalStatus === 'rejected',
+                  'bg-slate-300':  sourceApprovalStatus === null,
+                  'bg-green-400':  sourceApprovalStatus === 'approved',
+                }]"></div>
+                <div class="flex-1 rounded-xl bg-slate-50 ring-1 ring-slate-200 px-3.5 py-3 group-hover:ring-indigo-300 group-hover:bg-indigo-50/40 transition">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="font-mono text-xs font-semibold text-slate-700">{{ config.promoted_from_uuid.slice(0, 8) }}…</span>
+                    <span v-if="sourceApprovalStatus" :class="['text-[10px] font-medium px-2 py-0.5 rounded-full', {
+                      'bg-yellow-100 text-yellow-700': sourceApprovalStatus === 'pending',
+                      'bg-green-100 text-green-700':   sourceApprovalStatus === 'approved',
+                      'bg-red-100 text-red-600':        sourceApprovalStatus === 'rejected',
+                    }]">{{ sourceApprovalStatus }}</span>
+                  </div>
+                  <p class="mt-0.5 text-[11px] text-slate-400 capitalize">{{ sourceEnvironment ?? config.environment }} · parent</p>
+                </div>
+              </NuxtLink>
+
+              <!-- Origin label (no parent) -->
+              <div v-else class="relative flex items-center gap-4">
+                <div class="relative z-10 w-3.5 h-3.5 rounded-full border-2 border-slate-300 bg-white shrink-0"></div>
+                <span class="text-[11px] text-slate-400 italic">origin snapshot</span>
+              </div>
+
+              <!-- Current snapshot -->
+              <div class="relative flex items-start gap-4">
+                <div class="relative z-10 mt-1 shrink-0">
+                  <div class="w-3.5 h-3.5 rounded-full bg-indigo-500 ring-2 ring-white"></div>
+                  <div class="absolute inset-0 rounded-full bg-indigo-400 animate-ping opacity-25"></div>
+                </div>
+                <div class="flex-1 rounded-xl bg-indigo-50 ring-2 ring-indigo-400 px-3.5 py-3">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="font-mono text-xs font-semibold text-indigo-800">{{ uuid.slice(0, 8) }}…</span>
+                    <span :class="['text-[10px] font-medium px-2 py-0.5 rounded-full', {
+                      'bg-yellow-100 text-yellow-700': localApprovalStatus === 'pending',
+                      'bg-green-100 text-green-700':   localApprovalStatus === 'approved',
+                      'bg-red-100 text-red-600':        localApprovalStatus === 'rejected',
+                    }]">{{ localApprovalStatus }}</span>
+                  </div>
+                  <p class="mt-0.5 text-[11px] text-indigo-400 capitalize">{{ config.environment }} · this snapshot</p>
+                </div>
+              </div>
+
+              <!-- Child nodes -->
+              <NuxtLink v-for="child in children" :key="child.config_relation_uuid"
+                :to="`/config-snapshot/${child.config_relation_uuid}?proj=${projId}&cmp=${cmpId}&env=${child.environment}`"
+                class="relative flex items-start gap-4 group">
+                <div :class="['relative z-10 mt-1 w-3.5 h-3.5 rounded-full ring-2 ring-white shrink-0 group-hover:scale-110 transition-transform', {
+                  'bg-yellow-400': child.approval_status === 'pending',
+                  'bg-green-400':  child.approval_status === 'approved',
+                  'bg-red-400':    child.approval_status === 'rejected',
+                }]"></div>
+                <div class="flex-1 rounded-xl bg-slate-50 ring-1 ring-slate-200 px-3.5 py-3 group-hover:ring-indigo-300 group-hover:bg-indigo-50/40 transition">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="font-mono text-xs font-semibold text-slate-700">{{ child.config_relation_uuid.slice(0, 8) }}…</span>
+                    <span :class="['text-[10px] font-medium px-2 py-0.5 rounded-full', {
+                      'bg-yellow-100 text-yellow-700': child.approval_status === 'pending',
+                      'bg-green-100 text-green-700':   child.approval_status === 'approved',
+                      'bg-red-100 text-red-600':        child.approval_status === 'rejected',
+                    }]">{{ child.approval_status }}</span>
+                  </div>
+                  <p class="mt-0.5 text-[11px] text-slate-400 capitalize">{{ child.environment }}</p>
+                </div>
+              </NuxtLink>
+
+              <!-- No children placeholder (shown only after load completes) -->
+              <div v-if="childrenLoaded && children.length === 0" class="relative flex items-center gap-4">
+                <div class="relative z-10 w-3.5 h-3.5 rounded-full border-2 border-dashed border-slate-300 shrink-0"></div>
+                <span class="text-[11px] text-slate-400 italic">no branches yet</span>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
         <!-- Approval card -->
         <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
           <div class="px-5 py-4 border-b border-slate-50">
@@ -570,6 +671,30 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               class="rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold ring-1 ring-blue-200 text-blue-600 hover:bg-blue-50 transition shrink-0">
               Edit
             </button>
+          </div>
+        </div>
+
+        <!-- Inherit action (all snapshots) -->
+        <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h3 class="font-semibold text-slate-900 text-sm">Inherit config</h3>
+              <p class="text-xs text-slate-400 mt-0.5">Start a new snapshot pre-filled from this one</p>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <select v-model="inheritEnv"
+                class="rounded-xl ring-1 ring-slate-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="development">Development</option>
+                <option value="testing">Testing</option>
+                <option value="staging">Staging</option>
+                <option value="production">Production</option>
+              </select>
+              <button
+                @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId, env: inheritEnv, from: uuid } })"
+                class="rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold ring-1 ring-indigo-200 text-indigo-600 hover:bg-indigo-50 transition">
+                Inherit
+              </button>
+            </div>
           </div>
         </div>
 
