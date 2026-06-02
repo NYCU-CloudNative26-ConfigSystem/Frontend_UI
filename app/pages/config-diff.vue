@@ -164,19 +164,12 @@ onMounted(() => {
   <div class="min-h-screen bg-slate-50">
 
     <!-- Nav -->
-    <nav class="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-slate-100">
-      <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2 min-w-0 text-sm">
-          <NuxtLink to="/home" class="text-slate-400 hover:text-slate-700 transition shrink-0">← Home</NuxtLink>
-          <span class="text-slate-200 shrink-0 select-none">|</span>
-          <button @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId } })"
-            class="text-slate-400 hover:text-slate-700 transition shrink-0 hidden sm:inline">Config</button>
-          <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
-          <span class="font-semibold text-slate-900">Environment Diff</span>
-        </div>
-        <button @click="auth.logout()" class="text-sm text-slate-400 hover:text-red-500 transition shrink-0">Logout</button>
-      </div>
-    </nav>
+    <AppNav>
+      <button @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId } })"
+        class="text-slate-400 hover:text-slate-700 transition shrink-0 hidden sm:inline">Config</button>
+      <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
+      <span class="font-semibold text-slate-900">Environment Diff</span>
+    </AppNav>
 
     <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
 
@@ -205,8 +198,7 @@ onMounted(() => {
       </div>
 
       <!-- Error -->
-      <div v-if="error"
-        class="bg-red-50 ring-1 ring-red-200 rounded-xl px-4 py-3 text-sm text-red-700">{{ error }}</div>
+      <AlertBox v-if="error">{{ error }}</AlertBox>
 
       <!-- Loading -->
       <div v-if="loading" class="text-center py-12 text-sm text-slate-400">Comparing environments…</div>
@@ -239,14 +231,12 @@ onMounted(() => {
         </div>
 
         <!-- Missing env warnings -->
-        <div v-if="env1Missing"
-          class="bg-amber-50 ring-1 ring-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
+        <AlertBox v-if="env1Missing" variant="warning">
           No approved config in <strong class="capitalize">{{ env1 }}</strong> — showing keys from {{ env2 }} only.
-        </div>
-        <div v-if="env2Missing"
-          class="bg-amber-50 ring-1 ring-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
+        </AlertBox>
+        <AlertBox v-if="env2Missing" variant="warning">
           No approved config in <strong class="capitalize">{{ env2 }}</strong> — showing keys from {{ env1 }} only.
-        </div>
+        </AlertBox>
 
         <!-- Diff table -->
         <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">

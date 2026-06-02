@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ConfigReadResponse, NodeResolveResponse } from '~/composables/useApi'
+import type { ConfigHistoryItem, ConfigReadResponse, NodeResolveResponse } from '~/composables/useApi'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -10,10 +10,10 @@ const router = useRouter()
 
 const uuid = computed(() => route.params.uuid as string)
 
-// Context passed via query params from config.vue
-const projId = computed(() => route.query.proj as string ?? '')
-const cmpId = computed(() => route.query.cmp as string ?? '')
-const envId = computed(() => route.query.env as string ?? '')
+// Context — seeded from query params, overridden with API values on mount
+const projId = ref(route.query.proj as string ?? '')
+const cmpId = ref(route.query.cmp as string ?? '')
+const envId = ref(route.query.env as string ?? '')
 const createdBy = ref(route.query.created_by as string || '')
 const tmplVersion = computed(() => route.query.tmpl_v ? Number(route.query.tmpl_v) : null)
 const isLatest = ref(route.query.is_latest === '1')
@@ -40,6 +40,13 @@ const rejecting = ref(false)
 const rejectError = ref('')
 const showRejectInput = ref(false)
 const rejectReason = ref('')
+const inheritEnv = ref('')
+const lineageView = ref<'focus' | 'deep'>('focus')
+const snapshotDetailTab = ref<'entries' | 'reviewer'>('entries')
+
+watch(canReview, (allowed) => {
+  if (!allowed && snapshotDetailTab.value === 'reviewer') snapshotDetailTab.value = 'entries'
+})
 
 const ENV_PIPELINE = ['development', 'testing', 'staging', 'production'] as const
 
@@ -63,6 +70,26 @@ const resolvedNames = ref<Record<string, string>>({})
 const resolvedValues = ref<Record<string, string>>({})
 const resolvedSensitive = ref<Record<string, boolean>>({})
 const revealedValues = ref(new Set<string>())
+
+// Lineage diff state
+interface DiffEntry { alias: string; type: 'changed' | 'added' | 'removed'; oldVal: string | null; newVal: string | null }
+const diffEntries = ref<DiffEntry[]>([])
+const diffUnchangedCount = ref(0)
+const diffLoading = ref(false)
+const diffError = ref('')
+const sourceEnvironment = ref<string | null>(null)
+const sourceApprovalStatus = ref<string | null>(null)
+const sourceName = ref<string | null>(null)
+
+// Lineage ancestors (ordered oldest -> newest, all levels)
+interface LineageTreeNode extends ConfigHistoryItem { children: LineageTreeNode[] }
+interface AncestorNode { uuid: string; cmp_id: string | null; environment: string; approval_status: string | null; name: string | null; branches: LineageTreeNode[] }
+const ancestors = ref<AncestorNode[]>([])
+const ancestorsLoaded = ref(false)
+
+// Lineage children
+const children = ref<LineageTreeNode[]>([])
+const childrenLoaded = ref(false)
 
 function toggleReveal(valRef: string) {
   const s = new Set(revealedValues.value)
@@ -92,6 +119,149 @@ async function resolveNodeToDisplay(nodeUuid: string, depth = 0): Promise<string
     return node.isArray ? `[ ${parts.join(', ')} ]` : `{ ${parts.join(', ')} }`
   }
   return nodeUuid
+}
+
+async function resolveValDisplay(valRef: string): Promise<string> {
+  const stripped = stripRef(valRef)
+  const node = await api.ssot.resolveNode(stripped, auth.token).catch(() => null)
+  if (!node) return valRef
+  if (node.type === 'value') return node.is_sensitive ? '(sensitive)' : String(node.val ?? '')
+  if (node.type === 'group') return await resolveNodeToDisplay(stripped, 0)
+  return valRef
+}
+
+async function loadAncestors() {
+  // Step 1: Walk the complete ancestry chain sequentially (each depends on the previous).
+  const snapList: { uuid: string; data: ConfigReadResponse }[] = []
+  let nextUuid: string | null | undefined = config.value?.promoted_from_uuid
+  const visitedAncestors = new Set<string>()
+  while (nextUuid && !visitedAncestors.has(nextUuid)) {
+    visitedAncestors.add(nextUuid)
+    const snap = await api.configTable.getByUuid(nextUuid, auth.token).catch(() => null)
+    if (!snap) break
+    snapList.unshift({ uuid: nextUuid, data: snap })
+    nextUuid = snap.promoted_from_uuid
+  }
+
+  const trunkUuids = new Set([...snapList.map(s => s.uuid), uuid.value])
+  const descendantVisits = new Set<string>()
+
+  async function enrichChild(child: ConfigHistoryItem): Promise<ConfigHistoryItem> {
+    if (child.name) return child
+    const full = await api.configTable.getByUuid(child.config_relation_uuid, auth.token).catch(() => null)
+    if (!full?.name) return child
+    return { ...child, name: full.name }
+  }
+
+  async function loadDescendants(parentUuid: string): Promise<LineageTreeNode[]> {
+    if (descendantVisits.has(parentUuid)) return []
+    descendantVisits.add(parentUuid)
+    const directChildren = await api.configTable.getConfigChildren(parentUuid, auth.token).catch(() => [])
+    return await Promise.all(directChildren.map(async child => {
+      const enrichedChild = await enrichChild(child)
+      return {
+        ...enrichedChild,
+        children: trunkUuids.has(enrichedChild.config_relation_uuid)
+        ? []
+        : await loadDescendants(enrichedChild.config_relation_uuid),
+      }
+    }))
+  }
+
+  const childrenByUuid: Record<string, LineageTreeNode[]> = {}
+  await Promise.all(snapList.map(async ({ uuid: u }) => {
+    childrenByUuid[u] = await loadDescendants(u)
+  }))
+
+  // Step 2: Build result - branches are children that are not the next node in the trunk.
+  ancestors.value = snapList.map(({ uuid: ancestorUuid, data: snap }, i) => {
+    const nextInChain = i < snapList.length - 1 ? snapList[i + 1].uuid : uuid.value
+    const branches = (childrenByUuid[ancestorUuid] ?? []).filter(
+      c => c.config_relation_uuid !== nextInChain
+    )
+    return {
+      uuid: ancestorUuid,
+      cmp_id: snap.cmp_id ?? null,
+      environment: snap.environment,
+      approval_status: snap.approval_status ?? null,
+      name: snap.name ?? null,
+      branches,
+    }
+  })
+  ancestorsLoaded.value = true
+}
+
+async function loadChildren() {
+  const visited = new Set<string>()
+
+  async function enrichChild(child: ConfigHistoryItem): Promise<ConfigHistoryItem> {
+    if (child.name) return child
+    const full = await api.configTable.getByUuid(child.config_relation_uuid, auth.token).catch(() => null)
+    if (!full?.name) return child
+    return { ...child, name: full.name }
+  }
+
+  async function loadDescendants(parentUuid: string): Promise<LineageTreeNode[]> {
+    if (visited.has(parentUuid)) return []
+    visited.add(parentUuid)
+    const directChildren = await api.configTable.getConfigChildren(parentUuid, auth.token).catch(() => [])
+    return await Promise.all(directChildren.map(async child => {
+      const enrichedChild = await enrichChild(child)
+      return {
+        ...enrichedChild,
+        children: await loadDescendants(enrichedChild.config_relation_uuid),
+      }
+    }))
+  }
+
+  children.value = await loadDescendants(uuid.value)
+  childrenLoaded.value = true
+}
+
+async function loadDiff() {
+  if (!config.value?.promoted_from_uuid) return
+  diffLoading.value = true
+  diffError.value = ''
+  try {
+    const source = await api.configTable.getByUuid(config.value.promoted_from_uuid, auth.token)
+    sourceEnvironment.value = source?.environment ?? null
+    sourceApprovalStatus.value = source?.approval_status ?? null
+    sourceName.value = source?.name ?? null
+
+    const currentMap = new Map<string, string>()
+    const sourceMap = new Map<string, string>()
+    for (const row of config.value.rows) currentMap.set(row.key, row.val)
+    for (const row of (source?.rows ?? [])) sourceMap.set(row.key, row.val)
+
+    const allKeys = new Set([...currentMap.keys(), ...sourceMap.keys()])
+    const entries: DiffEntry[] = []
+    let unchanged = 0
+
+    for (const key of allKeys) {
+      const curVal = currentMap.get(key)
+      const srcVal = sourceMap.get(key)
+      const nameNode = await api.ssot.resolveNode(key, auth.token).catch(() => null)
+      const alias = nameNode?.name_val ?? key
+
+      if (curVal === undefined) {
+        entries.push({ alias, type: 'removed', oldVal: await resolveValDisplay(srcVal!), newVal: null })
+      } else if (srcVal === undefined) {
+        entries.push({ alias, type: 'added', oldVal: null, newVal: await resolveValDisplay(curVal) })
+      } else if (curVal !== srcVal) {
+        const [oldDisplay, newDisplay] = await Promise.all([resolveValDisplay(srcVal), resolveValDisplay(curVal)])
+        entries.push({ alias, type: 'changed', oldVal: oldDisplay, newVal: newDisplay })
+      } else {
+        unchanged++
+      }
+    }
+
+    diffEntries.value = entries
+    diffUnchangedCount.value = unchanged
+  } catch (e: unknown) {
+    diffError.value = e instanceof Error ? e.message : 'Failed to load diff'
+  } finally {
+    diffLoading.value = false
+  }
 }
 
 async function resolveRows(cfg: ConfigReadResponse) {
@@ -132,7 +302,14 @@ onMounted(async () => {
     if (cfg.created_by != null) createdBy.value = cfg.created_by
     if (cfg.is_latest != null) isLatest.value = cfg.is_latest
     if (cfg.change_description != null) changeDescription.value = cfg.change_description
+    if (cfg.proj_id) projId.value = cfg.proj_id
+    if (cfg.cmp_id) cmpId.value = cfg.cmp_id
+    if (cfg.environment) envId.value = cfg.environment
+    inheritEnv.value = cfg.environment ?? 'production'
     await resolveRows(config.value)
+    loadAncestors()
+    if (config.value.promoted_from_uuid) loadDiff()
+    loadChildren().catch(() => { childrenLoaded.value = true })
   } catch (e: unknown) {
     loadError.value = e instanceof Error ? e.message : 'Failed to load snapshot'
   } finally {
@@ -168,6 +345,32 @@ async function rejectConfig() {
     rejectError.value = e instanceof Error ? e.message : 'Reject failed'
   } finally {
     rejecting.value = false
+  }
+}
+
+// ── Deploy ────────────────────────────────────────────────────────────────────
+
+const deploying = ref(false)
+const deploySuccess = ref('')
+const deployError = ref('')
+const deployFormat = ref<'env' | 'json' | 'yaml' | 'xml' | 'properties'>('env')
+
+async function deployConfig() {
+  deploying.value = true
+  deploySuccess.value = ''
+  deployError.value = ''
+  try {
+    await api.export.deploy(uuid.value, {
+      proj_id: projId.value,
+      cmp_id: cmpId.value,
+      environment: config.value!.environment,
+      format: deployFormat.value,
+    }, auth.token)
+    deploySuccess.value = 'Deployment triggered!'
+  } catch (e: unknown) {
+    deployError.value = e instanceof Error ? e.message : 'Deploy failed. Check GitHub Actions.'
+  } finally {
+    deploying.value = false
   }
 }
 
@@ -242,22 +445,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   <div class="min-h-screen bg-slate-50">
 
     <!-- Nav -->
-    <nav class="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-slate-100">
-      <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2 min-w-0 text-sm">
-          <NuxtLink to="/home" class="text-slate-400 hover:text-slate-700 transition shrink-0">← Home</NuxtLink>
-          <span class="text-slate-200 shrink-0 select-none">|</span>
-          <button
-            @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId, env: envId } })"
-            class="text-slate-400 hover:text-slate-700 transition shrink-0 capitalize hidden sm:inline">
-            {{ envId || 'Config' }}
-          </button>
-          <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
-          <span class="font-semibold text-slate-900 truncate font-mono text-xs">{{ uuid }}</span>
-        </div>
-        <button @click="auth.logout()" class="text-sm text-slate-400 hover:text-red-500 transition shrink-0">Logout</button>
-      </div>
-    </nav>
+    <AppNav>
+      <button
+        @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId, env: envId } })"
+        class="text-slate-400 hover:text-slate-700 transition shrink-0 capitalize hidden sm:inline">
+        {{ envId || 'Config' }}
+      </button>
+      <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
+      <span class="font-semibold text-slate-900 truncate font-mono text-xs">{{ uuid }}</span>
+    </AppNav>
 
     <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
 
@@ -272,8 +468,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
       <!-- Loading / error -->
       <div v-if="loading" class="text-center py-12 text-sm text-slate-400">Loading snapshot…</div>
-      <div v-else-if="loadError"
-        class="bg-red-50 ring-1 ring-red-200 rounded-2xl px-5 py-4 text-sm text-red-700">{{ loadError }}</div>
+      <AlertBox v-else-if="loadError" :large="true">{{ loadError }}</AlertBox>
 
       <template v-else-if="config">
 
@@ -282,20 +477,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <div class="px-5 py-4 border-b border-slate-50 flex items-start justify-between gap-4">
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2 mb-1">
-                <span v-if="isLatest && localApprovalStatus === 'approved'"
-                  class="bg-blue-50 text-blue-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Latest</span>
-                <span v-else-if="localApprovalStatus === 'pending'"
-                  class="bg-yellow-50 text-yellow-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Pending review</span>
-                <span v-else-if="localApprovalStatus === 'rejected'"
-                  class="bg-red-50 text-red-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Rejected</span>
-                <span v-else-if="localApprovalStatus === 'approved'"
-                  class="bg-slate-100 text-slate-500 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Approved</span>
+                <StatusBadge :status="localApprovalStatus" :is-latest="isLatest" />
                 <span class="font-semibold text-slate-900 text-sm capitalize">{{ config.environment }}</span>
                 <span v-if="tmplVersion != null"
                   class="bg-slate-100 text-slate-500 text-xs font-medium px-2 py-0.5 rounded-full">
                   Template v{{ tmplVersion }}
                 </span>
               </div>
+              <h2 class="text-lg font-semibold text-slate-900 truncate">
+                {{ config.name || uuid.slice(0, 8) }}
+              </h2>
               <p class="text-xs text-slate-400 font-mono break-all">{{ uuid }}</p>
             </div>
           </div>
@@ -317,56 +508,131 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Reason for change</p>
             <p class="text-sm text-slate-700 whitespace-pre-wrap">{{ changeDescription }}</p>
           </div>
+          <div v-if="config.promoted_from_uuid" class="border-t border-slate-50 px-5 py-4">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Derived from</p>
+            <NuxtLink
+              :to="`/config-snapshot/${config.promoted_from_uuid}?proj=${projId}&cmp=${cmpId}&env=${sourceEnvironment ?? ''}`"
+              class="group inline-flex max-w-full items-start gap-2 text-blue-600 transition hover:text-blue-700">
+              <span class="min-w-0">
+                <span class="block truncate text-sm font-semibold">{{ sourceName || config.promoted_from_uuid.slice(0, 8) }}</span>
+                <span class="block text-xs text-slate-400">
+                  <span v-if="sourceEnvironment" class="capitalize">{{ sourceEnvironment }}</span>
+                  <span v-if="sourceEnvironment"> · </span>
+                  <span class="font-mono break-all">{{ config.promoted_from_uuid }}</span>
+                </span>
+              </span>
+              <span class="pt-0.5 transition group-hover:translate-x-0.5">→</span>
+            </NuxtLink>
+          </div>
         </div>
 
-        <!-- Key/value table -->
+        <!-- Snapshot detail tabs -->
         <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
-          <div class="px-5 py-3 border-b border-slate-50">
-            <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Config Entries</h3>
+          <div class="border-b border-slate-50 px-5 py-3">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h3 class="text-sm font-semibold text-slate-900">Snapshot details</h3>
+              <div class="flex w-full gap-0.5 overflow-x-auto rounded-lg bg-slate-100 p-0.5 sm:w-auto">
+                <button
+                  @click="snapshotDetailTab = 'entries'"
+                  :class="['flex-1 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition sm:flex-none', snapshotDetailTab === 'entries' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-600']">
+                  Config Entries
+                  <span class="ml-1 text-[10px] text-slate-400">{{ config.rows.length }}</span>
+                </button>
+                <button
+                  v-if="canReview"
+                  @click="snapshotDetailTab = 'reviewer'"
+                  :class="['flex-1 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition sm:flex-none', snapshotDetailTab === 'reviewer' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-600']">
+                  Similarity
+                </button>
+              </div>
+            </div>
           </div>
-          <div v-if="config.rows.length === 0" class="px-5 py-8 text-center text-sm text-slate-400">
-            No entries in this snapshot.
-          </div>
-          <div v-else class="overflow-x-auto">
-            <table class="w-full text-xs sm:text-sm">
-              <thead>
-                <tr class="text-left border-b border-slate-50">
-                  <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide w-1/2">Key</th>
-                  <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide w-1/2">Value</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-50">
-                <tr v-for="row in config.rows" :key="row.uuid" class="hover:bg-slate-50/50 transition">
-                  <td class="px-5 py-3">
-                    <button @click="openModal(row.key)"
-                      class="font-semibold text-slate-800 hover:text-blue-600 transition text-left">
-                      {{ resolvedNames[row.key] ?? '…' }}
-                    </button>
-                  </td>
-                  <td class="px-5 py-3">
-                    <div v-if="resolvedSensitive[row.val]" class="flex items-center gap-2 flex-wrap">
-                      <span v-if="!revealedValues.has(row.val)"
-                        class="font-mono text-xs text-slate-300 tracking-widest select-none">••••••••</span>
+
+          <template v-if="snapshotDetailTab === 'entries'">
+            <div v-if="config.rows.length === 0" class="px-5 py-8 text-center text-sm text-slate-400">
+              No entries in this snapshot.
+            </div>
+            <div v-else class="overflow-x-auto">
+              <table class="w-full min-w-[520px] text-xs sm:text-sm">
+                <thead>
+                  <tr class="text-left border-b border-slate-50">
+                    <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide w-1/2">Key</th>
+                    <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide w-1/2">Value</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-50">
+                  <tr v-for="row in config.rows" :key="row.uuid" class="hover:bg-slate-50/50 transition">
+                    <td class="px-5 py-3">
+                      <button @click="openModal(row.key)"
+                        class="font-semibold text-slate-800 hover:text-blue-600 transition text-left">
+                        {{ resolvedNames[row.key] ?? '…' }}
+                      </button>
+                    </td>
+                    <td class="px-5 py-3">
+                      <div v-if="resolvedSensitive[row.val]" class="flex items-center gap-2 flex-wrap">
+                        <span v-if="!revealedValues.has(row.val)"
+                          class="font-mono text-xs text-slate-300 tracking-widest select-none">••••••••</span>
+                        <button v-else @click="openModal(row.val)"
+                          class="text-slate-600 hover:text-blue-600 transition text-left font-mono text-xs break-all">
+                          {{ resolvedValues[row.val] ?? '…' }}
+                        </button>
+                        <span class="bg-amber-50 text-amber-700 ring-1 ring-amber-200 text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0">Sensitive</span>
+                        <button v-if="canReview"
+                          @click="toggleReveal(row.val)"
+                          class="text-xs font-medium text-slate-400 hover:text-slate-700 transition underline shrink-0">
+                          {{ revealedValues.has(row.val) ? 'Hide' : 'Reveal' }}
+                        </button>
+                      </div>
                       <button v-else @click="openModal(row.val)"
                         class="text-slate-600 hover:text-blue-600 transition text-left font-mono text-xs break-all">
                         {{ resolvedValues[row.val] ?? '…' }}
                       </button>
-                      <span class="bg-amber-50 text-amber-700 ring-1 ring-amber-200 text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0">Sensitive</span>
-                      <button v-if="canReview"
-                        @click="toggleReveal(row.val)"
-                        class="text-xs font-medium text-slate-400 hover:text-slate-700 transition underline shrink-0">
-                        {{ revealedValues.has(row.val) ? 'Hide' : 'Reveal' }}
-                      </button>
-                    </div>
-                    <button v-else @click="openModal(row.val)"
-                      class="text-slate-600 hover:text-blue-600 transition text-left font-mono text-xs break-all">
-                      {{ resolvedValues[row.val] ?? '…' }}
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
+
+          <div v-else-if="canReview" class="p-0">
+            <ReviewerSimilarityReport :config-uuid="uuid" :compact="true" :limit="4" :embedded="true" />
           </div>
+        </div>
+
+        <!-- Lineage timeline (horizontal — left→right) -->
+        <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
+          <!-- Header + Focus / Deep toggle -->
+          <div class="flex items-center justify-between mb-5">
+            <h3 class="text-sm font-semibold text-slate-900">Lineage</h3>
+            <div class="flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5">
+              <button
+                @click="lineageView = 'focus'"
+                :class="['px-2.5 py-1 rounded-md text-xs font-medium transition', lineageView === 'focus' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-600']">
+                Focus
+              </button>
+              <button
+                @click="lineageView = 'deep'"
+                :class="['px-2.5 py-1 rounded-md text-xs font-medium transition', lineageView === 'deep' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-600']">
+                Deep
+              </button>
+            </div>
+          </div>
+
+          <LineageGraph
+            :view="lineageView"
+            :ancestors="ancestors"
+            :ancestors-loaded="ancestorsLoaded"
+            :children="children"
+            :children-loaded="childrenLoaded"
+            :current="{
+              uuid,
+              environment: config.environment,
+              approval_status: localApprovalStatus,
+              name: config.name ?? null,
+            }"
+            :proj-id="projId"
+            :cmp-id="cmpId"
+          />
         </div>
 
         <!-- Approval card -->
@@ -378,8 +644,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <!-- Pending + can review -->
           <template v-if="localApprovalStatus === 'pending' && canReview">
             <div class="px-5 py-4 space-y-3">
-              <p class="text-sm text-slate-600">This snapshot is awaiting approval. As a <span class="font-semibold capitalize">{{ myRole }}</span>, you can approve or reject it.</p>
+              <p class="text-sm text-slate-600">This snapshot is awaiting approval. As a <span class="font-semibold capitalize">{{ myRole }}</span>, you can edit, approve, or reject it.</p>
               <div class="flex flex-wrap gap-2">
+                <button
+                  @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId, env: config.environment, editPending: uuid } })"
+                  class="rounded-xl px-5 py-2 text-sm font-semibold ring-1 ring-blue-200 text-blue-600 hover:bg-blue-50 transition">
+                  Edit
+                </button>
                 <button
                   @click="approveConfig"
                   :disabled="approving"
@@ -446,6 +717,130 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </p>
             </div>
           </template>
+        </div>
+
+        <!-- Lineage diff -->
+        <div v-if="config.promoted_from_uuid" class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
+          <div class="px-5 py-4 border-b border-slate-50 flex items-center justify-between gap-4">
+            <h3 class="font-semibold text-slate-900 text-sm">Changes from source</h3>
+            <NuxtLink v-if="sourceEnvironment"
+              :to="`/config-snapshot/${config.promoted_from_uuid}?proj=${projId}&cmp=${cmpId}&env=${sourceEnvironment}`"
+              class="text-xs font-medium text-blue-600 hover:text-blue-700 transition capitalize shrink-0">
+              ← {{ sourceEnvironment }} snapshot
+            </NuxtLink>
+          </div>
+          <div v-if="diffLoading" class="px-5 py-6 text-sm text-slate-400 text-center">Loading diff…</div>
+          <div v-else-if="diffError" class="px-5 py-4 text-sm text-red-600">{{ diffError }}</div>
+          <div v-else>
+            <div v-if="diffEntries.length === 0"
+              class="px-5 py-4 text-sm text-slate-500">
+              No changes — {{ diffUnchangedCount }} {{ diffUnchangedCount === 1 ? 'key' : 'keys' }} unchanged.
+            </div>
+            <div v-else class="overflow-x-auto">
+              <table class="w-full text-xs sm:text-sm">
+                <thead>
+                  <tr class="text-left border-b border-slate-50">
+                    <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Key</th>
+                    <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Old value</th>
+                    <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">New value</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-50">
+                  <tr v-for="entry in diffEntries" :key="entry.alias" class="hover:bg-slate-50/50">
+                    <td class="px-5 py-3 font-semibold text-slate-800">{{ entry.alias }}</td>
+                    <td class="px-5 py-3 font-mono text-xs text-slate-500">
+                      <span v-if="entry.oldVal !== null">{{ entry.oldVal }}</span>
+                      <span v-else class="text-slate-300 italic">—</span>
+                    </td>
+                    <td class="px-5 py-3 font-mono text-xs">
+                      <span v-if="entry.type === 'removed'" class="text-red-500 italic">removed</span>
+                      <span v-else-if="entry.newVal !== null" :class="{
+                        'text-emerald-600': entry.type === 'added',
+                        'text-blue-600': entry.type === 'changed',
+                      }">{{ entry.newVal }}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="diffUnchangedCount > 0" class="px-5 py-3 text-xs text-slate-400 border-t border-slate-50">
+                {{ diffUnchangedCount }} {{ diffUnchangedCount === 1 ? 'key' : 'keys' }} unchanged
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Edit action (approved snapshots only) -->
+        <div v-if="localApprovalStatus === 'approved'" class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h3 class="font-semibold text-slate-900 text-sm">Edit config</h3>
+              <p class="text-xs text-slate-400 mt-0.5">Pre-populate the editor with this snapshot's values</p>
+            </div>
+            <button
+              @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId, env: config.environment, from: uuid } })"
+              class="rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold ring-1 ring-blue-200 text-blue-600 hover:bg-blue-50 transition shrink-0">
+              Edit
+            </button>
+          </div>
+        </div>
+
+        <!-- Deploy action (approved snapshots only) -->
+        <div v-if="localApprovalStatus === 'approved'" class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h3 class="font-semibold text-slate-900 text-sm">Deploy config</h3>
+              <p class="text-xs text-slate-400 mt-0.5">Push this snapshot to the live environment via CI/CD</p>
+            </div>
+            <button
+              @click="deployConfig"
+              :disabled="deploying || !!deploySuccess"
+              class="rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold transition shrink-0"
+              :class="deploySuccess
+                ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40'">
+              {{ deploySuccess ? deploySuccess : deploying ? 'Deploying…' : '🚀 Deploy' }}
+            </button>
+          </div>
+          <div class="mt-3 flex flex-wrap gap-1.5">
+            <button
+              v-for="fmt in ['env', 'json', 'yaml', 'xml', 'properties']"
+              :key="fmt"
+              @click="deployFormat = (fmt as typeof deployFormat.value)"
+              :disabled="deploying || !!deploySuccess"
+              :class="['px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition',
+                deployFormat === fmt
+                  ? 'bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200'
+                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-40']">
+              .{{ fmt }}
+            </button>
+          </div>
+          <div v-if="deployError" class="mt-3 text-sm text-red-600 bg-red-50 ring-1 ring-red-200 rounded-xl px-3 py-2">
+            {{ deployError }}
+          </div>
+        </div>
+
+        <!-- Inherit action (all snapshots) -->
+        <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h3 class="font-semibold text-slate-900 text-sm">Inherit config</h3>
+              <p class="text-xs text-slate-400 mt-0.5">Start a new snapshot pre-filled from this one</p>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <select v-model="inheritEnv"
+                class="rounded-xl ring-1 ring-slate-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="development">Development</option>
+                <option value="testing">Testing</option>
+                <option value="staging">Staging</option>
+                <option value="production">Production</option>
+              </select>
+              <button
+                @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId, env: inheritEnv, from: uuid } })"
+                class="rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold ring-1 ring-indigo-200 text-indigo-600 hover:bg-indigo-50 transition">
+                Inherit
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Promote action -->

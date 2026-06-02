@@ -13,6 +13,7 @@ async function login() {
   try {
     const res = await api.auth.login(email.value, password.value)
     auth.setToken(res.access_token)
+    if (res.refresh_token) auth.setRefreshToken(res.refresh_token)
     navigateTo('/home')
   } catch (e: unknown) {
     setError(e, 'Login failed. Please try again.')
@@ -27,7 +28,7 @@ async function login() {
         <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-blue-600 mb-4 shadow-lg shadow-blue-500/30">
           <span class="text-white text-sm font-bold tracking-tight">CS</span>
         </div>
-        <h1 class="text-2xl font-bold text-slate-900">Welcome back</h1>
+        <h1 class="text-2xl font-bold text-slate-900">Welcome back!</h1>
         <p class="text-sm text-slate-500 mt-1">Sign in to Config System</p>
       </div>
 

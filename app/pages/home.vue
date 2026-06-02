@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { ConfigHistoryItem } from '~/composables/useApi'
+
 definePageMeta({ middleware: 'auth' })
 
 const api = useApi()
@@ -8,13 +10,27 @@ const statuses = ref<Record<string, 'ok' | 'error' | 'checking'>>({
   login: 'checking',
   config: 'checking',
   ssot: 'checking',
+  export: 'checking',
 })
+
+const pendingReviews = ref<ConfigHistoryItem[]>([])
+const pendingReviewsLoading = ref(false)
+
+async function loadPendingReviews() {
+  pendingReviewsLoading.value = true
+  try {
+    pendingReviews.value = await api.configTable.pendingReviews(auth.token, { limit: 5 }).catch(() => [])
+  } finally {
+    pendingReviewsLoading.value = false
+  }
+}
 
 async function checkHealth() {
   const checks: [string, () => Promise<{ status: string }>][] = [
     ['login', api.health.login],
     ['config', api.health.config],
     ['ssot', api.health.ssot],
+    ['export', api.health.export],
   ]
   for (const [key, fn] of checks) {
     statuses.value[key] = 'checking'
@@ -28,21 +44,17 @@ async function checkHealth() {
 }
 
 onMounted(checkHealth)
+onMounted(loadPendingReviews)
 </script>
 
 <template>
   <div class="min-h-screen bg-slate-50">
-    <header class="bg-white border-b border-slate-100">
-      <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-        <div class="flex items-center gap-2.5">
-          <div class="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
-            <span class="text-white text-xs font-bold leading-none">CS</span>
-          </div>
-          <span class="font-semibold text-slate-900 text-sm">Config System</span>
-        </div>
-        <button @click="auth.logout()" class="text-sm text-slate-400 hover:text-red-500 transition">Logout</button>
+    <AppNav :show-back="false">
+      <div class="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
+        <span class="text-white text-xs font-bold leading-none">CS</span>
       </div>
-    </header>
+      <span class="font-semibold text-slate-900 text-sm">Config System</span>
+    </AppNav>
 
     <main class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
       <!-- Navigation cards -->
@@ -65,13 +77,23 @@ onMounted(checkHealth)
           <p class="text-xs text-slate-400 mt-0.5">Assign companies and configs</p>
         </NuxtLink>
 
-        <NuxtLink to="/config"
+
+        <NuxtLink to="/config-search"
           class="group bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 hover:ring-blue-500/40 hover:shadow-sm transition-all">
-          <div class="w-9 h-9 bg-emerald-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-emerald-200 transition">
-            <span class="text-emerald-700 text-xs font-bold">CFG</span>
+          <div class="w-9 h-9 bg-violet-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-violet-200 transition">
+            <span class="text-violet-700 text-xs font-bold">SRC</span>
           </div>
-          <p class="font-semibold text-slate-800 text-sm">Config Manager</p>
-          <p class="text-xs text-slate-400 mt-0.5">Browse config snapshots</p>
+          <p class="font-semibold text-slate-800 text-sm">Search Configs</p>
+          <p class="text-xs text-slate-400 mt-0.5">Find configs by name, project, company, or key</p>
+        </NuxtLink>
+
+        <NuxtLink to="/review-pending"
+          class="group bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 hover:ring-blue-500/40 hover:shadow-sm transition-all">
+          <div class="w-9 h-9 bg-rose-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-rose-200 transition">
+            <span class="text-rose-700 text-xs font-bold">REV</span>
+          </div>
+          <p class="font-semibold text-slate-800 text-sm">Pending Review</p>
+          <p class="text-xs text-slate-400 mt-0.5">Jump straight into pending snapshots</p>
         </NuxtLink>
 
         <NuxtLink to="/export"
@@ -82,6 +104,48 @@ onMounted(checkHealth)
           <p class="font-semibold text-slate-800 text-sm">Config Export</p>
           <p class="text-xs text-slate-400 mt-0.5">Download JSON, YAML, ENV, XML</p>
         </NuxtLink>
+        <NuxtLink to="/about-me"
+          class="group bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 hover:ring-blue-500/40 hover:shadow-sm transition-all">
+          <div class="w-9 h-9 bg-emerald-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-emerald-200 transition">
+            <span class="text-emerald-700 text-xs font-bold">Me</span>
+          </div>
+          <p class="font-semibold text-slate-800 text-sm">About Me</p>
+          <p class="text-xs text-slate-400 mt-0.5">Browse my profile and settings</p>
+        </NuxtLink>
+      </div>
+
+      <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-50">
+          <div>
+            <h2 class="font-semibold text-slate-900 text-sm">Pending review</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Snapshots waiting for reviewer action.</p>
+          </div>
+          <NuxtLink to="/review-pending" class="text-xs font-medium text-blue-600 hover:text-blue-700 transition">
+            View all pending reviews
+          </NuxtLink>
+          
+        </div>
+        <div v-if="pendingReviewsLoading" class="px-5 py-8 text-sm text-slate-400">Loading pending reviews…</div>
+        <div v-else-if="pendingReviews.length === 0" class="px-5 py-8 text-sm text-slate-400">
+          No pending reviews right now.
+        </div>
+        <div v-else class="divide-y divide-slate-50">
+          <NuxtLink
+            v-for="item in pendingReviews"
+            :key="item.config_relation_uuid"
+            :to="`/config-snapshot/${item.config_relation_uuid}?proj=${item.proj_id ?? ''}&cmp=${item.cmp_id ?? ''}&env=${item.environment}`"
+            class="block px-5 py-4 hover:bg-slate-50 transition">
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0">
+                <p class="font-semibold text-slate-900 text-sm truncate">{{ item.name ?? item.config_relation_uuid }}</p>
+                <p class="text-xs text-slate-400 mt-0.5">
+                  {{ item.proj_id ?? '—' }} / {{ item.cmp_id ?? '—' }} · {{ item.environment }} · {{ item.entry_count }} entries
+                </p>
+              </div>
+              <StatusBadge :status="item.approval_status" />
+            </div>
+          </NuxtLink>
+        </div>
       </div>
 
       <!-- Service health -->

@@ -1,3 +1,5 @@
+import { useAuthStore } from '~/stores/auth'
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface SearchResult {
@@ -20,6 +22,7 @@ export interface NodeResolveResponse {
   type: 'name' | 'value' | 'group'
   uuid: string
   name_val?: string
+  truthId?: string
   val?: string | number
   is_sensitive?: boolean
   isArray?: boolean
@@ -72,6 +75,10 @@ export interface ConfigReadResponse {
   created_by?: string | null
   is_latest?: boolean | null
   change_description?: string | null
+  promoted_from_uuid?: string | null
+  proj_id?: string | null
+  cmp_id?: string | null
+  name?: string | null
 }
 
 export interface ConfigWriteEntry {
@@ -88,6 +95,8 @@ export interface ConfigWritePayload {
   entries: ConfigWriteEntry[]
   template_version_uuid?: string
   change_description?: string
+  source_snapshot_uuid?: string
+  name?: string
 }
 
 export interface ConfigHistoryItem {
@@ -105,6 +114,61 @@ export interface ConfigHistoryItem {
   approved_at: string | null
   rejection_reason: string | null
   change_description: string | null
+  promoted_from_uuid?: string | null
+  name?: string | null
+  proj_id?: string | null
+  cmp_id?: string | null
+}
+
+export interface ReviewSimilaritySourceEntry {
+  path: string
+  key_uuid: string
+  key_alias: string
+  value_ref: string
+  value_display: string
+  is_group: boolean
+}
+
+export interface ReviewSimilarityEntryMatch {
+  source_path: string
+  source_key_alias: string
+  source_value_display: string
+  source_value_ref: string
+  candidate_path: string
+  candidate_key_alias: string
+  candidate_value_display: string
+  candidate_value_ref: string
+  match_kind: string
+  score: number
+  display_state: 'shown' | 'hidden'
+  display_reason?: string | null
+}
+
+export interface ReviewSimilarityCandidate {
+  config_relation_uuid: string
+  date_created: string
+  environment: string
+  approval_status: string
+  score: number
+  name?: string | null
+  proj_id?: string | null
+  cmp_id?: string | null
+  matched_entries: ReviewSimilarityEntryMatch[]
+}
+
+export interface ReviewSimilarityReport {
+  config_relation_uuid: string
+  date_created: string
+  environment: string
+  approval_status: string
+  created_by?: string | null
+  name?: string | null
+  proj_id?: string | null
+  cmp_id?: string | null
+  source_entry_count: number
+  candidate_count: number
+  source_entries: ReviewSimilaritySourceEntry[]
+  candidates: ReviewSimilarityCandidate[]
 }
 
 export interface ExportDownloadPayload {
@@ -114,6 +178,12 @@ export interface ExportDownloadPayload {
   format: 'json' | 'yaml' | 'env' | 'xml' | 'properties'
   version_uuid?: string | null
   filename?: string | null
+}
+
+export interface ExportPreviewResponse {
+  content: string
+  format: string
+  filename: string
 }
 
 export interface ConfigApprovalResponse {
@@ -166,6 +236,7 @@ export interface ProjectTemplateVersion {
   uuid: string
   proj_id: string
   version_number: number
+  template_name: string | null
   latest: boolean
   created_by: string
   date_created: string
@@ -186,14 +257,61 @@ const BASE = {
   ssot: "/api/ssot",
 } as const;
 
+// ── Token refresh ─────────────────────────────────────────────────────────────
+
+// Deduplicates concurrent refresh calls — only one in-flight at a time.
+let _refreshPromise: Promise<string | null> | null = null
+
+async function tryRefreshToken(): Promise<string | null> {
+  if (_refreshPromise) return _refreshPromise
+  _refreshPromise = (async () => {
+    try {
+      const refreshToken = import.meta.client ? localStorage.getItem('refresh_token') : null
+      if (!refreshToken) return null
+
+      const res = await fetch(`${BASE.login}/api/v1/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      })
+      if (!res.ok) return null
+
+      const data = await res.json()
+      const newToken: string = data.access_token
+      if (import.meta.client) localStorage.setItem('access_token', newToken)
+
+      // Update Pinia store if available in this context
+      try { useAuthStore().setToken(newToken) } catch {}
+
+      return newToken
+    } catch {
+      return null
+    } finally {
+      _refreshPromise = null
+    }
+  })()
+  return _refreshPromise
+}
+
 // ── Request helper ────────────────────────────────────────────────────────────
 
-async function req<T>(url: string, opts: RequestInit = {}): Promise<T> {
+async function req<T>(url: string, opts: RequestInit = {}, _retried = false): Promise<T> {
   const { headers: optsHeaders, ...restOpts } = opts
-  const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(optsHeaders as Record<string, string>) },
-    ...restOpts,
-  });
+  const mergedHeaders = { "Content-Type": "application/json", ...(optsHeaders as Record<string, string>) }
+  const res = await fetch(url, { headers: mergedHeaders, ...restOpts })
+
+  // Attempt token refresh on 401, then retry once
+  if (res.status === 401 && !_retried) {
+    const newToken = await tryRefreshToken()
+    if (newToken) {
+      const retryHeaders = { ...mergedHeaders, Authorization: `Bearer ${newToken}` }
+      return req<T>(url, { ...restOpts, headers: retryHeaders }, true)
+    }
+    // Refresh failed — force logout
+    try { useAuthStore().logout() } catch {}
+    throw new Error('Session expired. Please log in again.')
+  }
+
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`
     try {
@@ -208,7 +326,7 @@ async function req<T>(url: string, opts: RequestInit = {}): Promise<T> {
   if (res.status === 204 || res.headers.get('content-length') === '0') {
     return undefined as T
   }
-  return res.json();
+  return res.json()
 }
 
 async function reqBlob(url: string, opts: RequestInit = {}): Promise<{ blob: Blob; headers: Headers }> {
@@ -331,6 +449,11 @@ export function useApi() {
           `${BASE.config}/api/v1/config/${encodeURIComponent(uuid)}/promote`,
           { method: 'POST', body: JSON.stringify({ to_environment: toEnvironment }), headers: { Authorization: `Bearer ${token}` } },
         ),
+      updatePending: (uuid: string, entries: ConfigWriteEntry[], token: string) =>
+        req<ConfigReadResponse>(
+          `${BASE.config}/api/v1/config/${encodeURIComponent(uuid)}`,
+          { method: 'PATCH', body: JSON.stringify({ entries }), headers: { Authorization: `Bearer ${token}` } },
+        ),
       approve: (uuid: string, token: string) =>
         req<ConfigApprovalResponse>(
           `${BASE.config}/api/v1/config/${encodeURIComponent(uuid)}/approve`,
@@ -341,6 +464,49 @@ export function useApi() {
           `${BASE.config}/api/v1/config/${encodeURIComponent(uuid)}/reject`,
           { method: 'POST', body: JSON.stringify({ reason }), headers: { Authorization: `Bearer ${token}` } },
         ),
+      search: (
+        params: { q?: string; key_uuids?: string[]; proj_id?: string; cmp_id?: string; environment?: string; approval_status?: string; skip?: number; limit?: number },
+        token: string,
+      ) => {
+        const qs = new URLSearchParams()
+        if (params.q) qs.set('q', params.q)
+        if (params.proj_id) qs.set('proj_id', params.proj_id)
+        if (params.cmp_id) qs.set('cmp_id', params.cmp_id)
+        if (params.environment) qs.set('environment', params.environment)
+        if (params.approval_status) qs.set('approval_status', params.approval_status)
+        if (params.skip !== undefined) qs.set('skip', String(params.skip))
+        if (params.limit !== undefined) qs.set('limit', String(params.limit))
+        for (const u of params.key_uuids ?? []) qs.append('key_uuids', u)
+        return req<ConfigHistoryItem[]>(
+          `${BASE.config}/api/v1/config/search?${qs.toString()}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+      },
+      pendingReviews: (token: string, params?: { skip?: number; limit?: number }) => {
+        const qs = new URLSearchParams()
+        if (params?.skip !== undefined) qs.set('skip', String(params.skip))
+        if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+        const suffix = qs.toString() ? `?${qs.toString()}` : ''
+        return req<ConfigHistoryItem[]>(
+          `${BASE.config}/api/v1/config/pending${suffix}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+      },
+      getConfigChildren: (uuid: string, token: string) =>
+        req<ConfigHistoryItem[]>(
+          `${BASE.config}/api/v1/config/${encodeURIComponent(uuid)}/children`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        ),
+      reviewSimilarityReport: (uuid: string, token: string, params?: { limit?: number; threshold?: number }) => {
+        const qs = new URLSearchParams()
+        if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+        if (params?.threshold !== undefined) qs.set('threshold', String(params.threshold))
+        const suffix = qs.toString() ? `?${qs.toString()}` : ''
+        return req<ReviewSimilarityReport>(
+          `${BASE.config}/api/v1/config/${encodeURIComponent(uuid)}/review-similarity${suffix}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+      },
     },
 
     companies: {
@@ -412,10 +578,15 @@ export function useApi() {
           `${BASE.config}/api/v1/projects/${encodeURIComponent(projId)}/template/versions`,
           { headers: { Authorization: `Bearer ${token}` } },
         ),
-      publishTemplate: (projId: string, token: string) =>
+      publishTemplate: (projId: string, payload: { template_name?: string | null } | null, token: string) =>
         req<ProjectTemplateVersion>(
           `${BASE.config}/api/v1/projects/${encodeURIComponent(projId)}/template/publish`,
-          { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+          { method: "POST", body: JSON.stringify(payload ?? {}), headers: { Authorization: `Bearer ${token}` } },
+        ),
+      applyTemplateVersion: (projId: string, versionUuid: string, token: string) =>
+        req<ProjectTemplateVersion>(
+          `${BASE.config}/api/v1/projects/${encodeURIComponent(projId)}/template/versions/${encodeURIComponent(versionUuid)}/apply`,
+          { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
         ),
       getPublishedTemplateKeys: (projId: string, token: string) =>
         req<PublishedTemplateKeysResponse>(
@@ -430,10 +601,20 @@ export function useApi() {
           `${BASE.export}/api/v1/exports/versions?proj_id=${encodeURIComponent(projId)}&cmp_id=${encodeURIComponent(cmpId)}&environment=${encodeURIComponent(environment)}`,
           { headers: { Authorization: `Bearer ${token}` } },
         ),
+      preview: (payload: ExportDownloadPayload, token: string) =>
+        req<ExportPreviewResponse>(
+          `${BASE.export}/api/v1/exports/preview`,
+          { method: 'POST', body: JSON.stringify(payload), headers: { Authorization: `Bearer ${token}` } },
+        ),
       download: (payload: ExportDownloadPayload, token: string) =>
         reqBlob(
           `${BASE.export}/api/v1/exports/download`,
           { method: 'POST', body: JSON.stringify(payload), headers: { Authorization: `Bearer ${token}` } },
+        ),
+      deploy: (versionUuid: string, body: { proj_id: string; cmp_id: string; environment: string }, token: string) =>
+        req<{ status: string }>(
+          `${BASE.export}/api/v1/exports/deploy/${encodeURIComponent(versionUuid)}`,
+          { method: 'POST', body: JSON.stringify(body), headers: { Authorization: `Bearer ${token}` } },
         ),
     },
   };
