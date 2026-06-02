@@ -75,7 +75,7 @@ const sourceEnvironment = ref<string | null>(null)
 const sourceApprovalStatus = ref<string | null>(null)
 
 // Lineage ancestors (ordered oldest → newest, all levels)
-interface AncestorNode { uuid: string; cmp_id: string | null; environment: string; approval_status: string | null }
+interface AncestorNode { uuid: string; cmp_id: string | null; environment: string; approval_status: string | null; name: string | null; branches: ConfigHistoryItem[] }
 const ancestors = ref<AncestorNode[]>([])
 const ancestorsLoaded = ref(false)
 
@@ -123,15 +123,41 @@ async function resolveValDisplay(valRef: string): Promise<string> {
 }
 
 async function loadAncestors() {
-  const chain: AncestorNode[] = []
+  // Step 1: Walk ancestry chain sequentially (each depends on the previous)
+  const snapList: { uuid: string; data: ConfigReadResponse }[] = []
   let nextUuid: string | null | undefined = config.value?.promoted_from_uuid
-  while (nextUuid && chain.length < 10) {
+  while (nextUuid && snapList.length < 10) {
     const snap = await api.configTable.getByUuid(nextUuid, auth.token).catch(() => null)
     if (!snap) break
-    chain.unshift({ uuid: nextUuid, cmp_id: snap.cmp_id ?? null, environment: snap.environment, approval_status: snap.approval_status ?? null })
+    snapList.unshift({ uuid: nextUuid, data: snap })
     nextUuid = snap.promoted_from_uuid
   }
-  ancestors.value = chain
+
+  // Step 2: Fetch children for each ancestor in parallel to find branch points
+  const childrenByUuid: Record<string, ConfigHistoryItem[]> = {}
+  await Promise.all(
+    snapList.map(({ uuid: u }) =>
+      api.configTable.getConfigChildren(u, auth.token)
+        .then(items => { childrenByUuid[u] = items })
+        .catch(() => { childrenByUuid[u] = [] })
+    )
+  )
+
+  // Step 3: Build result — branches = children that are NOT the next node in the main chain
+  ancestors.value = snapList.map(({ uuid: ancestorUuid, data: snap }, i) => {
+    const nextInChain = i < snapList.length - 1 ? snapList[i + 1].uuid : uuid.value
+    const branches = (childrenByUuid[ancestorUuid] ?? []).filter(
+      c => c.config_relation_uuid !== nextInChain
+    )
+    return {
+      uuid: ancestorUuid,
+      cmp_id: snap.cmp_id ?? null,
+      environment: snap.environment,
+      approval_status: snap.approval_status ?? null,
+      name: snap.name ?? null,
+      branches,
+    }
+  })
   ancestorsLoaded.value = true
 }
 
@@ -479,16 +505,31 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </div>
             </template>
             <template v-else-if="ancestors.length > 0">
-              <!-- Full ancestor chain -->
-              <div v-for="(ancestor, i) in ancestors" :key="ancestor.uuid" class="flex items-start shrink-0">
-                <LineageNode
-                  :label="ancestor.cmp_id || ancestor.uuid.slice(0, 8)"
-                  :environment="ancestor.environment"
-                  :status="ancestor.approval_status"
-                  :to="`/config-snapshot/${ancestor.uuid}?proj=${projId}&cmp=${cmpId}&env=${ancestor.environment}`"
-                  :tag="i === ancestors.length - 1 ? 'parent' : ''"
-                />
-                <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-slate-300 to-indigo-300"></div>
+              <!-- Full ancestor chain — each node may have branches below -->
+              <div v-for="(ancestor, i) in ancestors" :key="ancestor.uuid" class="flex flex-col shrink-0">
+                <!-- Main chain row: node + rightward connector -->
+                <div class="flex items-start">
+                  <LineageNode
+                    :label="ancestor.name || ancestor.uuid.slice(0, 8)"
+                    :environment="ancestor.environment"
+                    :status="ancestor.approval_status"
+                    :to="`/config-snapshot/${ancestor.uuid}?proj=${projId}&cmp=${cmpId}&env=${ancestor.environment}`"
+                    :tag="i === ancestors.length - 1 ? 'parent' : ''"
+                  />
+                  <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-slate-300 to-indigo-300"></div>
+                </div>
+                <!-- Branch nodes below (siblings that diverged from this ancestor) -->
+                <div v-if="ancestor.branches.length" class="mt-3 ml-[88px] pl-5 border-l border-slate-200 flex flex-col gap-3">
+                  <LineageNode
+                    v-for="branch in ancestor.branches"
+                    :key="branch.config_relation_uuid"
+                    :label="branch.name || branch.config_relation_uuid.slice(0, 8)"
+                    :environment="branch.environment"
+                    :status="branch.approval_status ?? null"
+                    :to="`/config-snapshot/${branch.config_relation_uuid}?proj=${projId}&cmp=${cmpId}&env=${branch.environment}`"
+                    tag="branch"
+                  />
+                </div>
               </div>
             </template>
             <template v-else>
@@ -508,7 +549,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <!-- ── Current ───────────────────── -->
             <div class="flex items-start shrink-0">
               <LineageNode
-                :label="config.cmp_id || uuid.slice(0, 8)"
+                :label="config.name || uuid.slice(0, 8)"
                 :environment="config.environment"
                 :status="localApprovalStatus"
                 :current="true"
@@ -528,7 +569,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 <LineageNode
                   v-for="child in children"
                   :key="child.config_relation_uuid"
-                  :label="child.cmp_id || child.config_relation_uuid.slice(0, 8)"
+                  :label="child.name || child.config_relation_uuid.slice(0, 8)"
                   :environment="child.environment"
                   :status="child.approval_status"
                   :to="`/config-snapshot/${child.config_relation_uuid}?proj=${projId}&cmp=${cmpId}&env=${child.environment}`"

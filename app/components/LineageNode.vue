@@ -17,7 +17,7 @@ const NuxtLink = resolveComponent('NuxtLink')
   <component
     :is="to ? NuxtLink : 'div'"
     :to="to"
-    :class="['flex items-start gap-3', to && 'group']"
+    :class="['flex flex-col items-center gap-3', to && 'group']"
   >
     <!-- Dot -->
     <div class="relative z-10 mt-1 shrink-0">
@@ -36,10 +36,10 @@ const NuxtLink = resolveComponent('NuxtLink')
       ? 'bg-indigo-50 ring-2 ring-indigo-400'
       : ['bg-slate-50 ring-1 ring-slate-200', to && 'group-hover:ring-indigo-300 group-hover:bg-indigo-50/40']
     ]">
-      <div class="flex items-center justify-between gap-2">
-        <span :class="['text-xs font-semibold truncate', current ? 'text-indigo-800' : 'text-slate-700']">
+      <div >
+        <div :class="['text-xs font-semibold truncate', current ? 'text-indigo-800' : 'text-slate-700']">
           {{ label }}
-        </span>
+        </div>
         <span v-if="status" :class="['text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0', {
           'bg-yellow-100 text-yellow-700': status === 'pending',
           'bg-green-100 text-green-700':   status === 'approved',
