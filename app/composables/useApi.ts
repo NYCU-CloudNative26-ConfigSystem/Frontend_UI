@@ -1,3 +1,5 @@
+import { useAuthStore } from '~/stores/auth'
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface SearchResult {
