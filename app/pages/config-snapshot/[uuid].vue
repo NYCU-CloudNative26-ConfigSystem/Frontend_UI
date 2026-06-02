@@ -353,6 +353,7 @@ async function rejectConfig() {
 const deploying = ref(false)
 const deploySuccess = ref('')
 const deployError = ref('')
+const deployFormat = ref<'env' | 'json' | 'yaml' | 'xml' | 'properties'>('env')
 
 async function deployConfig() {
   deploying.value = true
@@ -363,6 +364,7 @@ async function deployConfig() {
       proj_id: projId.value,
       cmp_id: cmpId.value,
       environment: config.value!.environment,
+      format: deployFormat.value,
     }, auth.token)
     deploySuccess.value = 'Deployment triggered!'
   } catch (e: unknown) {
@@ -796,7 +798,20 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               :class="deploySuccess
                 ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
                 : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40'">
-              {{ deploySuccess ? deploySuccess : deploying ? 'Deploying…' : 'Deploy' }}
+              {{ deploySuccess ? deploySuccess : deploying ? 'Deploying…' : '🚀 Deploy' }}
+            </button>
+          </div>
+          <div class="mt-3 flex flex-wrap gap-1.5">
+            <button
+              v-for="fmt in ['env', 'json', 'yaml', 'xml', 'properties']"
+              :key="fmt"
+              @click="deployFormat = (fmt as typeof deployFormat.value)"
+              :disabled="deploying || !!deploySuccess"
+              :class="['px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition',
+                deployFormat === fmt
+                  ? 'bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200'
+                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-40']">
+              .{{ fmt }}
             </button>
           </div>
           <div v-if="deployError" class="mt-3 text-sm text-red-600 bg-red-50 ring-1 ring-red-200 rounded-xl px-3 py-2">
