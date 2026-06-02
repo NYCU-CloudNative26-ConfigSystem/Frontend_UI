@@ -4,9 +4,11 @@ import type { ReviewSimilarityReport } from '~/composables/useApi'
 const props = withDefaults(defineProps<{
   configUuid: string
   compact?: boolean
+  embedded?: boolean
   limit?: number
 }>(), {
   compact: false,
+  embedded: false,
   limit: 5,
 })
 
@@ -92,7 +94,7 @@ const visibleSourceEntries = computed(() => {
 </script>
 
 <template>
-  <details class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden" open>
+  <details :class="embedded ? 'bg-white' : 'bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden'" open>
     <summary class="list-none px-5 py-4 border-b border-slate-50 flex flex-wrap items-center justify-between gap-3 cursor-pointer">
       <div>
         <h3 class="font-semibold text-slate-900 text-sm">Reviewer similarity report</h3>

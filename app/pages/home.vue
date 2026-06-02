@@ -77,14 +77,6 @@ onMounted(loadPendingReviews)
           <p class="text-xs text-slate-400 mt-0.5">Assign companies and configs</p>
         </NuxtLink>
 
-        <NuxtLink to="/config"
-          class="group bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 hover:ring-blue-500/40 hover:shadow-sm transition-all">
-          <div class="w-9 h-9 bg-emerald-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-emerald-200 transition">
-            <span class="text-emerald-700 text-xs font-bold">CFG</span>
-          </div>
-          <p class="font-semibold text-slate-800 text-sm">Config Manager</p>
-          <p class="text-xs text-slate-400 mt-0.5">Browse config snapshots</p>
-        </NuxtLink>
 
         <NuxtLink to="/config-search"
           class="group bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 hover:ring-blue-500/40 hover:shadow-sm transition-all">
@@ -112,6 +104,14 @@ onMounted(loadPendingReviews)
           <p class="font-semibold text-slate-800 text-sm">Config Export</p>
           <p class="text-xs text-slate-400 mt-0.5">Download JSON, YAML, ENV, XML</p>
         </NuxtLink>
+        <NuxtLink to="/"
+          class="group bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 hover:ring-blue-500/40 hover:shadow-sm transition-all">
+          <div class="w-9 h-9 bg-emerald-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-emerald-200 transition">
+            <span class="text-emerald-700 text-xs font-bold">Me</span>
+          </div>
+          <p class="font-semibold text-slate-800 text-sm">About Me</p>
+          <p class="text-xs text-slate-400 mt-0.5">Browse my profile and settings</p>
+        </NuxtLink>
       </div>
 
       <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
@@ -123,6 +123,7 @@ onMounted(loadPendingReviews)
           <NuxtLink to="/review-pending" class="text-xs font-medium text-blue-600 hover:text-blue-700 transition">
             View all pending reviews
           </NuxtLink>
+          
         </div>
         <div v-if="pendingReviewsLoading" class="px-5 py-8 text-sm text-slate-400">Loading pending reviews…</div>
         <div v-else-if="pendingReviews.length === 0" class="px-5 py-8 text-sm text-slate-400">

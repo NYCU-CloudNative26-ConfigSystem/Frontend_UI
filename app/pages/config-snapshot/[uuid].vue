@@ -42,6 +42,11 @@ const showRejectInput = ref(false)
 const rejectReason = ref('')
 const inheritEnv = ref('')
 const lineageView = ref<'focus' | 'deep'>('focus')
+const snapshotDetailTab = ref<'entries' | 'reviewer'>('entries')
+
+watch(canReview, (allowed) => {
+  if (!allowed && snapshotDetailTab.value === 'reviewer') snapshotDetailTab.value = 'entries'
+})
 
 const ENV_PIPELINE = ['development', 'testing', 'staging', 'production'] as const
 
@@ -74,14 +79,16 @@ const diffLoading = ref(false)
 const diffError = ref('')
 const sourceEnvironment = ref<string | null>(null)
 const sourceApprovalStatus = ref<string | null>(null)
+const sourceName = ref<string | null>(null)
 
-// Lineage ancestors (ordered oldest → newest, all levels)
-interface AncestorNode { uuid: string; cmp_id: string | null; environment: string; approval_status: string | null; name: string | null; branches: ConfigHistoryItem[] }
+// Lineage ancestors (ordered oldest -> newest, all levels)
+interface LineageTreeNode extends ConfigHistoryItem { children: LineageTreeNode[] }
+interface AncestorNode { uuid: string; cmp_id: string | null; environment: string; approval_status: string | null; name: string | null; branches: LineageTreeNode[] }
 const ancestors = ref<AncestorNode[]>([])
 const ancestorsLoaded = ref(false)
 
 // Lineage children
-const children = ref<ConfigHistoryItem[]>([])
+const children = ref<LineageTreeNode[]>([])
 const childrenLoaded = ref(false)
 
 function toggleReveal(valRef: string) {
@@ -124,27 +131,49 @@ async function resolveValDisplay(valRef: string): Promise<string> {
 }
 
 async function loadAncestors() {
-  // Step 1: Walk ancestry chain sequentially (each depends on the previous)
+  // Step 1: Walk the complete ancestry chain sequentially (each depends on the previous).
   const snapList: { uuid: string; data: ConfigReadResponse }[] = []
   let nextUuid: string | null | undefined = config.value?.promoted_from_uuid
-  while (nextUuid && snapList.length < 10) {
+  const visitedAncestors = new Set<string>()
+  while (nextUuid && !visitedAncestors.has(nextUuid)) {
+    visitedAncestors.add(nextUuid)
     const snap = await api.configTable.getByUuid(nextUuid, auth.token).catch(() => null)
     if (!snap) break
     snapList.unshift({ uuid: nextUuid, data: snap })
     nextUuid = snap.promoted_from_uuid
   }
 
-  // Step 2: Fetch children for each ancestor in parallel to find branch points
-  const childrenByUuid: Record<string, ConfigHistoryItem[]> = {}
-  await Promise.all(
-    snapList.map(({ uuid: u }) =>
-      api.configTable.getConfigChildren(u, auth.token)
-        .then(items => { childrenByUuid[u] = items })
-        .catch(() => { childrenByUuid[u] = [] })
-    )
-  )
+  const trunkUuids = new Set([...snapList.map(s => s.uuid), uuid.value])
+  const descendantVisits = new Set<string>()
 
-  // Step 3: Build result — branches = children that are NOT the next node in the main chain
+  async function enrichChild(child: ConfigHistoryItem): Promise<ConfigHistoryItem> {
+    if (child.name) return child
+    const full = await api.configTable.getByUuid(child.config_relation_uuid, auth.token).catch(() => null)
+    if (!full?.name) return child
+    return { ...child, name: full.name }
+  }
+
+  async function loadDescendants(parentUuid: string): Promise<LineageTreeNode[]> {
+    if (descendantVisits.has(parentUuid)) return []
+    descendantVisits.add(parentUuid)
+    const directChildren = await api.configTable.getConfigChildren(parentUuid, auth.token).catch(() => [])
+    return await Promise.all(directChildren.map(async child => {
+      const enrichedChild = await enrichChild(child)
+      return {
+        ...enrichedChild,
+        children: trunkUuids.has(enrichedChild.config_relation_uuid)
+        ? []
+        : await loadDescendants(enrichedChild.config_relation_uuid),
+      }
+    }))
+  }
+
+  const childrenByUuid: Record<string, LineageTreeNode[]> = {}
+  await Promise.all(snapList.map(async ({ uuid: u }) => {
+    childrenByUuid[u] = await loadDescendants(u)
+  }))
+
+  // Step 2: Build result - branches are children that are not the next node in the trunk.
   ancestors.value = snapList.map(({ uuid: ancestorUuid, data: snap }, i) => {
     const nextInChain = i < snapList.length - 1 ? snapList[i + 1].uuid : uuid.value
     const branches = (childrenByUuid[ancestorUuid] ?? []).filter(
@@ -162,6 +191,33 @@ async function loadAncestors() {
   ancestorsLoaded.value = true
 }
 
+async function loadChildren() {
+  const visited = new Set<string>()
+
+  async function enrichChild(child: ConfigHistoryItem): Promise<ConfigHistoryItem> {
+    if (child.name) return child
+    const full = await api.configTable.getByUuid(child.config_relation_uuid, auth.token).catch(() => null)
+    if (!full?.name) return child
+    return { ...child, name: full.name }
+  }
+
+  async function loadDescendants(parentUuid: string): Promise<LineageTreeNode[]> {
+    if (visited.has(parentUuid)) return []
+    visited.add(parentUuid)
+    const directChildren = await api.configTable.getConfigChildren(parentUuid, auth.token).catch(() => [])
+    return await Promise.all(directChildren.map(async child => {
+      const enrichedChild = await enrichChild(child)
+      return {
+        ...enrichedChild,
+        children: await loadDescendants(enrichedChild.config_relation_uuid),
+      }
+    }))
+  }
+
+  children.value = await loadDescendants(uuid.value)
+  childrenLoaded.value = true
+}
+
 async function loadDiff() {
   if (!config.value?.promoted_from_uuid) return
   diffLoading.value = true
@@ -170,6 +226,7 @@ async function loadDiff() {
     const source = await api.configTable.getByUuid(config.value.promoted_from_uuid, auth.token)
     sourceEnvironment.value = source?.environment ?? null
     sourceApprovalStatus.value = source?.approval_status ?? null
+    sourceName.value = source?.name ?? null
 
     const currentMap = new Map<string, string>()
     const sourceMap = new Map<string, string>()
@@ -252,9 +309,7 @@ onMounted(async () => {
     await resolveRows(config.value)
     loadAncestors()
     if (config.value.promoted_from_uuid) loadDiff()
-    api.configTable.getConfigChildren(uuid.value, auth.token)
-      .then(items => { children.value = items; childrenLoaded.value = true })
-      .catch(() => { childrenLoaded.value = true })
+    loadChildren().catch(() => { childrenLoaded.value = true })
   } catch (e: unknown) {
     loadError.value = e instanceof Error ? e.message : 'Failed to load snapshot'
   } finally {
@@ -403,6 +458,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                   Template v{{ tmplVersion }}
                 </span>
               </div>
+              <h2 class="text-lg font-semibold text-slate-900 truncate">
+                {{ config.name || uuid.slice(0, 8) }}
+              </h2>
               <p class="text-xs text-slate-400 font-mono break-all">{{ uuid }}</p>
             </div>
           </div>
@@ -428,63 +486,90 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Derived from</p>
             <NuxtLink
               :to="`/config-snapshot/${config.promoted_from_uuid}?proj=${projId}&cmp=${cmpId}&env=${sourceEnvironment ?? ''}`"
-              class="text-sm text-blue-600 hover:text-blue-700 transition inline-flex items-center gap-1">
-              <span v-if="sourceEnvironment" class="capitalize font-semibold">{{ sourceEnvironment }}</span>
-              <span class="font-mono text-xs break-all text-blue-500">{{ config.promoted_from_uuid }}</span>
-              <span>→</span>
+              class="group inline-flex max-w-full items-start gap-2 text-blue-600 transition hover:text-blue-700">
+              <span class="min-w-0">
+                <span class="block truncate text-sm font-semibold">{{ sourceName || config.promoted_from_uuid.slice(0, 8) }}</span>
+                <span class="block text-xs text-slate-400">
+                  <span v-if="sourceEnvironment" class="capitalize">{{ sourceEnvironment }}</span>
+                  <span v-if="sourceEnvironment"> · </span>
+                  <span class="font-mono break-all">{{ config.promoted_from_uuid }}</span>
+                </span>
+              </span>
+              <span class="pt-0.5 transition group-hover:translate-x-0.5">→</span>
             </NuxtLink>
           </div>
         </div>
 
-          <ReviewerSimilarityReport v-if="canReview" :config-uuid="uuid" :compact="true" :limit="4" />
-
-        <!-- Key/value table -->
+        <!-- Snapshot detail tabs -->
         <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
-          <div class="px-5 py-3 border-b border-slate-50">
-            <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Config Entries</h3>
+          <div class="border-b border-slate-50 px-5 py-3">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h3 class="text-sm font-semibold text-slate-900">Snapshot details</h3>
+              <div class="flex w-full gap-0.5 overflow-x-auto rounded-lg bg-slate-100 p-0.5 sm:w-auto">
+                <button
+                  @click="snapshotDetailTab = 'entries'"
+                  :class="['flex-1 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition sm:flex-none', snapshotDetailTab === 'entries' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-600']">
+                  Config Entries
+                  <span class="ml-1 text-[10px] text-slate-400">{{ config.rows.length }}</span>
+                </button>
+                <button
+                  v-if="canReview"
+                  @click="snapshotDetailTab = 'reviewer'"
+                  :class="['flex-1 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition sm:flex-none', snapshotDetailTab === 'reviewer' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-600']">
+                  Similarity
+                </button>
+              </div>
+            </div>
           </div>
-          <div v-if="config.rows.length === 0" class="px-5 py-8 text-center text-sm text-slate-400">
-            No entries in this snapshot.
-          </div>
-          <div v-else class="overflow-x-auto">
-            <table class="w-full text-xs sm:text-sm">
-              <thead>
-                <tr class="text-left border-b border-slate-50">
-                  <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide w-1/2">Key</th>
-                  <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide w-1/2">Value</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-50">
-                <tr v-for="row in config.rows" :key="row.uuid" class="hover:bg-slate-50/50 transition">
-                  <td class="px-5 py-3">
-                    <button @click="openModal(row.key)"
-                      class="font-semibold text-slate-800 hover:text-blue-600 transition text-left">
-                      {{ resolvedNames[row.key] ?? '…' }}
-                    </button>
-                  </td>
-                  <td class="px-5 py-3">
-                    <div v-if="resolvedSensitive[row.val]" class="flex items-center gap-2 flex-wrap">
-                      <span v-if="!revealedValues.has(row.val)"
-                        class="font-mono text-xs text-slate-300 tracking-widest select-none">••••••••</span>
+
+          <template v-if="snapshotDetailTab === 'entries'">
+            <div v-if="config.rows.length === 0" class="px-5 py-8 text-center text-sm text-slate-400">
+              No entries in this snapshot.
+            </div>
+            <div v-else class="overflow-x-auto">
+              <table class="w-full min-w-[520px] text-xs sm:text-sm">
+                <thead>
+                  <tr class="text-left border-b border-slate-50">
+                    <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide w-1/2">Key</th>
+                    <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide w-1/2">Value</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-50">
+                  <tr v-for="row in config.rows" :key="row.uuid" class="hover:bg-slate-50/50 transition">
+                    <td class="px-5 py-3">
+                      <button @click="openModal(row.key)"
+                        class="font-semibold text-slate-800 hover:text-blue-600 transition text-left">
+                        {{ resolvedNames[row.key] ?? '…' }}
+                      </button>
+                    </td>
+                    <td class="px-5 py-3">
+                      <div v-if="resolvedSensitive[row.val]" class="flex items-center gap-2 flex-wrap">
+                        <span v-if="!revealedValues.has(row.val)"
+                          class="font-mono text-xs text-slate-300 tracking-widest select-none">••••••••</span>
+                        <button v-else @click="openModal(row.val)"
+                          class="text-slate-600 hover:text-blue-600 transition text-left font-mono text-xs break-all">
+                          {{ resolvedValues[row.val] ?? '…' }}
+                        </button>
+                        <span class="bg-amber-50 text-amber-700 ring-1 ring-amber-200 text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0">Sensitive</span>
+                        <button v-if="canReview"
+                          @click="toggleReveal(row.val)"
+                          class="text-xs font-medium text-slate-400 hover:text-slate-700 transition underline shrink-0">
+                          {{ revealedValues.has(row.val) ? 'Hide' : 'Reveal' }}
+                        </button>
+                      </div>
                       <button v-else @click="openModal(row.val)"
                         class="text-slate-600 hover:text-blue-600 transition text-left font-mono text-xs break-all">
                         {{ resolvedValues[row.val] ?? '…' }}
                       </button>
-                      <span class="bg-amber-50 text-amber-700 ring-1 ring-amber-200 text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0">Sensitive</span>
-                      <button v-if="canReview"
-                        @click="toggleReveal(row.val)"
-                        class="text-xs font-medium text-slate-400 hover:text-slate-700 transition underline shrink-0">
-                        {{ revealedValues.has(row.val) ? 'Hide' : 'Reveal' }}
-                      </button>
-                    </div>
-                    <button v-else @click="openModal(row.val)"
-                      class="text-slate-600 hover:text-blue-600 transition text-left font-mono text-xs break-all">
-                      {{ resolvedValues[row.val] ?? '…' }}
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
+
+          <div v-else-if="canReview" class="p-0">
+            <ReviewerSimilarityReport :config-uuid="uuid" :compact="true" :limit="4" :embedded="true" />
           </div>
         </div>
 
@@ -507,151 +592,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             </div>
           </div>
 
-          <div class="flex items-start overflow-x-auto pb-1">
-
-            <!-- ── Focus view: just the direct parent ── -->
-            <template v-if="lineageView === 'focus'">
-              <!-- No parent at all -->
-              <template v-if="!config.promoted_from_uuid">
-                <div class="flex items-start shrink-0">
-                  <div class="flex items-start gap-3">
-                    <div class="mt-1 w-3.5 h-3.5 rounded-full border-2 border-slate-300 bg-white shrink-0"></div>
-                    <span class="text-[11px] text-slate-400 italic pt-1 whitespace-nowrap">origin snapshot</span>
-                  </div>
-                  <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-slate-300 to-indigo-300"></div>
-                </div>
-              </template>
-              <!-- Still loading -->
-              <template v-else-if="!ancestorsLoaded">
-                <div class="flex items-start shrink-0">
-                  <div class="flex items-start gap-3">
-                    <div class="mt-1 w-3.5 h-3.5 rounded-full bg-slate-200 animate-pulse shrink-0"></div>
-                    <div class="rounded-xl bg-slate-50 ring-1 ring-slate-100 px-3.5 py-3 w-44">
-                      <div class="h-2.5 bg-slate-200 rounded animate-pulse w-2/3"></div>
-                      <div class="h-2 bg-slate-100 rounded animate-pulse w-1/2 mt-2"></div>
-                    </div>
-                  </div>
-                  <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-slate-200"></div>
-                </div>
-              </template>
-              <!-- Loaded: visual ellipsis (if deep chain) + direct parent -->
-              <template v-else>
-                <!-- 3 progressively-sized dots → gradient tail → parent node -->
-                <div v-if="ancestors.length > 1"
-                  class="flex items-center self-start mt-3 shrink-0 gap-1.5 mr-3">
-                  <div class="w-1.5 h-1.5 rounded-full bg-slate-300 opacity-40 shrink-0"></div>
-                  <div class="w-2 h-2 rounded-full bg-slate-300 opacity-60 shrink-0"></div>
-                  <div class="w-2.5 h-2.5 rounded-full bg-slate-400 opacity-75 shrink-0"></div>
-                  <div class="ml-1 w-5 h-px bg-gradient-to-r from-slate-300 to-indigo-200 shrink-0"></div>
-                </div>
-                <div v-if="ancestors.length > 0" class="flex items-start shrink-0">
-                  <LineageNode
-                    :label="ancestors[ancestors.length - 1].name || ancestors[ancestors.length - 1].uuid.slice(0, 8)"
-                    :environment="ancestors[ancestors.length - 1].environment"
-                    :status="ancestors[ancestors.length - 1].approval_status"
-                    :to="`/config-snapshot/${ancestors[ancestors.length - 1].uuid}?proj=${projId}&cmp=${cmpId}&env=${ancestors[ancestors.length - 1].environment}`"
-                    tag="parent"
-                  />
-                  <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-slate-300 to-indigo-300"></div>
-                </div>
-              </template>
-            </template>
-
-            <!-- ── Deep view: compact dots + hover tooltips ── -->
-            <template v-else>
-              <template v-if="!config.promoted_from_uuid">
-                <div class="flex items-start shrink-0">
-                  <div class="flex items-start gap-3">
-                    <div class="mt-1 w-3.5 h-3.5 rounded-full border-2 border-slate-300 bg-white shrink-0"></div>
-                    <span class="text-[11px] text-slate-400 italic pt-1 whitespace-nowrap">origin snapshot</span>
-                  </div>
-                  <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-slate-300 to-indigo-300"></div>
-                </div>
-              </template>
-              <template v-else-if="ancestors.length > 0">
-                <!-- Full ancestor chain — dots only; cards appear as hover tooltips -->
-                <!-- Each ancestor: [node+branches column] + [connector] as siblings so branches
-                     don't affect where the connector starts. -->
-                <div v-for="(ancestor, i) in ancestors" :key="ancestor.uuid" class="flex items-start shrink-0">
-                  <!-- Node column: compact dot on top, branch dots below -->
-                  <div class="flex flex-col items-start">
-                    <LineageNode
-                      :compact="true"
-                      :label="ancestor.name || ancestor.uuid.slice(0, 8)"
-                      :environment="ancestor.environment"
-                      :status="ancestor.approval_status"
-                      :to="`/config-snapshot/${ancestor.uuid}?proj=${projId}&cmp=${cmpId}&env=${ancestor.environment}`"
-                      :tag="i === ancestors.length - 1 ? 'parent' : ''"
-                    />
-                    <!-- Branch nodes below, vertically connected to parent dot -->
-                    <div v-if="ancestor.branches.length" class="mt-2 ml-[6px] pl-2 border-l border-slate-200 flex flex-col gap-2">
-                      <LineageNode
-                        v-for="branch in ancestor.branches"
-                        :key="branch.config_relation_uuid"
-                        :compact="true"
-                        :label="branch.name || branch.config_relation_uuid.slice(0, 8)"
-                        :environment="branch.environment"
-                        :status="branch.approval_status ?? null"
-                        :to="`/config-snapshot/${branch.config_relation_uuid}?proj=${projId}&cmp=${cmpId}&env=${branch.environment}`"
-                        tag="branch"
-                      />
-                    </div>
-                  </div>
-                  <!-- Connector: sibling of node column, always flush with dot height -->
-                  <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-slate-300 to-indigo-300"></div>
-                </div>
-              </template>
-              <template v-else>
-                <!-- Walking the chain -->
-                <div class="flex items-start shrink-0">
-                  <div class="flex items-start gap-3">
-                    <div class="mt-1 w-3.5 h-3.5 rounded-full bg-slate-200 animate-pulse shrink-0"></div>
-                    <div class="rounded-xl bg-slate-50 ring-1 ring-slate-100 px-3.5 py-3 w-44">
-                      <div class="h-2.5 bg-slate-200 rounded animate-pulse w-2/3"></div>
-                      <div class="h-2 bg-slate-100 rounded animate-pulse w-1/2 mt-2"></div>
-                    </div>
-                  </div>
-                  <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-slate-200"></div>
-                </div>
-              </template>
-            </template>
-
-            <!-- ── Current (always shown) ── -->
-            <div class="flex items-start shrink-0">
-              <LineageNode
-                :label="config.name || uuid.slice(0, 8)"
-                :environment="config.environment"
-                :status="localApprovalStatus"
-                :current="true"
-                tag="this snapshot"
-              />
-              <div v-if="childrenLoaded"
-                class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-indigo-300 to-slate-300"></div>
-            </div>
-
-            <!-- ── Children column (always shown) ── -->
-            <template v-if="childrenLoaded">
-              <div v-if="children.length" class="relative flex flex-col gap-3 shrink-0">
-                <div v-if="children.length > 1"
-                  :class="['absolute top-2 bottom-2 w-px bg-gradient-to-b from-indigo-300 to-slate-200', lineageView === 'deep' ? 'left-[6px]' : 'left-[88px]']"></div>
-                <LineageNode
-                  v-for="child in children"
-                  :key="child.config_relation_uuid"
-                  :compact="lineageView === 'deep'"
-                  :label="child.name || child.config_relation_uuid.slice(0, 8)"
-                  :environment="child.environment"
-                  :status="child.approval_status"
-                  :to="`/config-snapshot/${child.config_relation_uuid}?proj=${projId}&cmp=${cmpId}&env=${child.environment}`"
-                  class="relative"
-                />
-              </div>
-              <div v-else class="flex flex-col items-center gap-3 shrink-0">
-                <div class="mt-1 w-3.5 h-3.5 rounded-full border-2 border-dashed border-slate-300 shrink-0"></div>
-                <span class="text-[11px] text-slate-400 italic pt-1">no branches yet</span>
-              </div>
-            </template>
-
-          </div>
+          <LineageGraph
+            :view="lineageView"
+            :ancestors="ancestors"
+            :ancestors-loaded="ancestorsLoaded"
+            :children="children"
+            :children-loaded="childrenLoaded"
+            :current="{
+              uuid,
+              environment: config.environment,
+              approval_status: localApprovalStatus,
+              name: config.name ?? null,
+            }"
+            :proj-id="projId"
+            :cmp-id="cmpId"
+          />
         </div>
 
         <!-- Approval card -->
