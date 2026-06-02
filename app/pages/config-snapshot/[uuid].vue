@@ -74,6 +74,11 @@ const diffError = ref('')
 const sourceEnvironment = ref<string | null>(null)
 const sourceApprovalStatus = ref<string | null>(null)
 
+// Lineage ancestors (ordered oldest → newest, all levels)
+interface AncestorNode { uuid: string; cmp_id: string | null; environment: string; approval_status: string | null }
+const ancestors = ref<AncestorNode[]>([])
+const ancestorsLoaded = ref(false)
+
 // Lineage children
 const children = ref<ConfigHistoryItem[]>([])
 const childrenLoaded = ref(false)
@@ -115,6 +120,19 @@ async function resolveValDisplay(valRef: string): Promise<string> {
   if (node.type === 'value') return node.is_sensitive ? '(sensitive)' : String(node.val ?? '')
   if (node.type === 'group') return await resolveNodeToDisplay(stripped, 0)
   return valRef
+}
+
+async function loadAncestors() {
+  const chain: AncestorNode[] = []
+  let nextUuid: string | null | undefined = config.value?.promoted_from_uuid
+  while (nextUuid && chain.length < 10) {
+    const snap = await api.configTable.getByUuid(nextUuid, auth.token).catch(() => null)
+    if (!snap) break
+    chain.unshift({ uuid: nextUuid, cmp_id: snap.cmp_id ?? null, environment: snap.environment, approval_status: snap.approval_status ?? null })
+    nextUuid = snap.promoted_from_uuid
+  }
+  ancestors.value = chain
+  ancestorsLoaded.value = true
 }
 
 async function loadDiff() {
@@ -205,6 +223,7 @@ onMounted(async () => {
     if (cfg.environment) envId.value = cfg.environment
     inheritEnv.value = cfg.environment ?? 'production'
     await resolveRows(config.value)
+    loadAncestors()
     if (config.value.promoted_from_uuid) loadDiff()
     api.configTable.getConfigChildren(uuid.value, auth.token)
       .then(items => { children.value = items; childrenLoaded.value = true })
@@ -448,23 +467,43 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
           <div class="flex items-start overflow-x-auto pb-1">
 
-            <!-- ── Parent ─────────────────────── -->
-            <div class="flex items-start shrink-0">
-              <LineageNode
-                v-if="config.promoted_from_uuid"
-                :label="config.cmp_id || config.promoted_from_uuid.slice(0, 8)"
-                :environment="sourceEnvironment ?? config.environment"
-                :status="sourceApprovalStatus"
-                :to="`/config-snapshot/${config.promoted_from_uuid}?proj=${projId}&cmp=${cmpId}&env=${sourceEnvironment ?? ''}`"
-                tag="parent"
-              />
-              <div v-else class="flex items-start gap-3">
-                <div class="mt-1 w-3.5 h-3.5 rounded-full border-2 border-slate-300 bg-white shrink-0"></div>
-                <span class="text-[11px] text-slate-400 italic pt-1 whitespace-nowrap">origin snapshot</span>
+            <!-- ── Ancestors (all levels, oldest → newest) ── -->
+            <template v-if="!config.promoted_from_uuid">
+              <!-- Origin snapshot — no ancestors -->
+              <div class="flex items-start shrink-0">
+                <div class="flex items-start gap-3">
+                  <div class="mt-1 w-3.5 h-3.5 rounded-full border-2 border-slate-300 bg-white shrink-0"></div>
+                  <span class="text-[11px] text-slate-400 italic pt-1 whitespace-nowrap">origin snapshot</span>
+                </div>
+                <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-slate-300 to-indigo-300"></div>
               </div>
-              <!-- horizontal connector → current -->
-              <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-slate-300 to-indigo-300"></div>
-            </div>
+            </template>
+            <template v-else-if="ancestors.length > 0">
+              <!-- Full ancestor chain -->
+              <div v-for="(ancestor, i) in ancestors" :key="ancestor.uuid" class="flex items-start shrink-0">
+                <LineageNode
+                  :label="ancestor.cmp_id || ancestor.uuid.slice(0, 8)"
+                  :environment="ancestor.environment"
+                  :status="ancestor.approval_status"
+                  :to="`/config-snapshot/${ancestor.uuid}?proj=${projId}&cmp=${cmpId}&env=${ancestor.environment}`"
+                  :tag="i === ancestors.length - 1 ? 'parent' : ''"
+                />
+                <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-slate-300 to-indigo-300"></div>
+              </div>
+            </template>
+            <template v-else>
+              <!-- Still walking the chain -->
+              <div class="flex items-start shrink-0">
+                <div class="flex items-start gap-3">
+                  <div class="mt-1 w-3.5 h-3.5 rounded-full bg-slate-200 animate-pulse shrink-0"></div>
+                  <div class="rounded-xl bg-slate-50 ring-1 ring-slate-100 px-3.5 py-3 w-44">
+                    <div class="h-2.5 bg-slate-200 rounded animate-pulse w-2/3"></div>
+                    <div class="h-2 bg-slate-100 rounded animate-pulse w-1/2 mt-2"></div>
+                  </div>
+                </div>
+                <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-slate-200"></div>
+              </div>
+            </template>
 
             <!-- ── Current ───────────────────── -->
             <div class="flex items-start shrink-0">
@@ -496,7 +535,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                   class="relative"
                 />
               </div>
-              <div v-else class="flex items-start gap-3 shrink-0">
+              <div v-else class="flex flex-col items-center gap-3 shrink-0">
                 <div class="mt-1 w-3.5 h-3.5 rounded-full border-2 border-dashed border-slate-300 shrink-0"></div>
                 <span class="text-[11px] text-slate-400 italic pt-1">no branches yet</span>
               </div>
