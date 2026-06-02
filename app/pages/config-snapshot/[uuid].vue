@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ConfigHistoryItem, ConfigReadResponse, NodeResolveResponse } from '~/composables/useApi'
+import type { ConfigHistoryItem, ConfigReadResponse, DeployLogOut, NodeResolveResponse } from '~/composables/useApi'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -310,6 +310,7 @@ onMounted(async () => {
     loadAncestors()
     if (config.value.promoted_from_uuid) loadDiff()
     loadChildren().catch(() => { childrenLoaded.value = true })
+    loadDeployHistory()
   } catch (e: unknown) {
     loadError.value = e instanceof Error ? e.message : 'Failed to load snapshot'
   } finally {
@@ -354,19 +355,35 @@ const deploying = ref(false)
 const deploySuccess = ref('')
 const deployError = ref('')
 const deployFormat = ref<'env' | 'json' | 'yaml' | 'xml' | 'properties'>('env')
+const showDeployModal = ref(false)
+const deployReason = ref('')
+const deployHistory = ref<DeployLogOut[]>([])
+
+async function loadDeployHistory() {
+  if (!projId.value || !cmpId.value) return
+  try {
+    deployHistory.value = await api.export.deployHistory(projId.value, cmpId.value, auth.token)
+  } catch {
+    // non-blocking — history is best-effort
+  }
+}
 
 async function deployConfig() {
   deploying.value = true
   deploySuccess.value = ''
   deployError.value = ''
+  showDeployModal.value = false
   try {
     await api.export.deploy(uuid.value, {
       proj_id: projId.value,
       cmp_id: cmpId.value,
       environment: config.value!.environment,
       format: deployFormat.value,
+      reason: deployReason.value,
     }, auth.token)
     deploySuccess.value = 'Deployment triggered!'
+    deployReason.value = ''
+    await loadDeployHistory()
   } catch (e: unknown) {
     deployError.value = e instanceof Error ? e.message : 'Deploy failed. Check GitHub Actions.'
   } finally {
@@ -792,7 +809,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               <p class="text-xs text-slate-400 mt-0.5">Push this snapshot to the live environment via CI/CD</p>
             </div>
             <button
-              @click="deployConfig"
+              @click="showDeployModal = true"
               :disabled="deploying || !!deploySuccess"
               class="rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold transition shrink-0"
               :class="deploySuccess
@@ -816,6 +833,42 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </div>
           <div v-if="deployError" class="mt-3 text-sm text-red-600 bg-red-50 ring-1 ring-red-200 rounded-xl px-3 py-2">
             {{ deployError }}
+          </div>
+        </div>
+
+        <!-- Deploy history -->
+        <div v-if="deployHistory.length > 0" class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
+          <h3 class="font-semibold text-slate-900 text-sm mb-3">Deploy history</h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="text-slate-400 text-left border-b border-slate-100">
+                  <th class="pb-2 pr-3 font-medium">When</th>
+                  <th class="pb-2 pr-3 font-medium">Env</th>
+                  <th class="pb-2 pr-3 font-medium">Version</th>
+                  <th class="pb-2 pr-3 font-medium">Format</th>
+                  <th class="pb-2 pr-3 font-medium">Reason</th>
+                  <th class="pb-2 pr-3 font-medium">By</th>
+                  <th class="pb-2 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-50">
+                <tr v-for="log in deployHistory" :key="log.id" class="text-slate-600">
+                  <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">{{ new Date(log.deployed_at).toLocaleString() }}</td>
+                  <td class="py-2 pr-3 capitalize">{{ log.environment }}</td>
+                  <td class="py-2 pr-3 font-mono text-slate-500">{{ log.version_uuid.slice(0, 8) }}</td>
+                  <td class="py-2 pr-3 font-mono">{{ log.format }}</td>
+                  <td class="py-2 pr-3 max-w-[180px] truncate" :title="log.reason">{{ log.reason }}</td>
+                  <td class="py-2 pr-3">{{ log.deployed_by }}</td>
+                  <td class="py-2">
+                    <span :class="['px-2 py-0.5 rounded-full font-semibold',
+                      log.status === 'triggered' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600']">
+                      {{ log.status }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
 
@@ -873,6 +926,35 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
       </template>
     </div>
+
+    <!-- Deploy confirmation modal -->
+    <AppModal v-model="showDeployModal" title="Confirm deployment" :subtitle="`Snapshot ${uuid.slice(0, 8)} → ${config?.environment ?? ''}`">
+      <div class="space-y-3 px-5 py-4">
+        <label class="block text-sm font-medium text-slate-700">Reason for deploying <span class="text-red-500">*</span></label>
+        <textarea
+          v-model="deployReason"
+          rows="3"
+          placeholder="e.g. Hotfix for missing API key in production…"
+          class="w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+        />
+        <p class="text-xs text-slate-400">Format: <span class="font-mono">.{{ deployFormat }}</span></p>
+      </div>
+      <template #footer>
+        <div class="flex items-center justify-end gap-2">
+          <button
+            @click="showDeployModal = false"
+            class="rounded-xl px-4 py-2 text-sm font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50 transition">
+            Cancel
+          </button>
+          <button
+            @click="deployConfig"
+            :disabled="!deployReason.trim() || deploying"
+            class="rounded-xl px-5 py-2 text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 transition">
+            {{ deploying ? 'Deploying…' : '🚀 Deploy' }}
+          </button>
+        </div>
+      </template>
+    </AppModal>
 
     <!-- Node resolve modal -->
     <Teleport to="body">
