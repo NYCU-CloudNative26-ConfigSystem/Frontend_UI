@@ -507,7 +507,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             </div>
           </div>
 
-          <div class="flex items-start overflow-x-auto pb-1">
+          <div :class="['flex items-start overflow-x-auto', lineageView === 'deep' ? 'pb-28' : 'pb-1']">
 
             <!-- ── Focus view: just the direct parent ── -->
             <template v-if="lineageView === 'focus'">
@@ -534,14 +534,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                   <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-slate-200"></div>
                 </div>
               </template>
-              <!-- Loaded: show "N older" + direct parent -->
+              <!-- Loaded: visual ellipsis (if deep chain) + direct parent -->
               <template v-else>
-                <div v-if="ancestors.length > 1" class="flex items-start shrink-0 opacity-60">
-                  <div class="flex flex-col items-center gap-3">
-                    <div class="mt-1 w-3.5 h-3.5 rounded-full border-2 border-dashed border-slate-400 bg-white shrink-0"></div>
-                    <span class="text-[10px] text-slate-500 italic whitespace-nowrap">{{ ancestors.length - 1 }} older</span>
-                  </div>
-                  <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-slate-300 to-indigo-300"></div>
+                <!-- 3 progressively-sized dots → gradient tail → parent node -->
+                <div v-if="ancestors.length > 1"
+                  class="flex items-center self-start mt-3 shrink-0 gap-1.5 mr-3">
+                  <div class="w-1.5 h-1.5 rounded-full bg-slate-300 opacity-40 shrink-0"></div>
+                  <div class="w-2 h-2 rounded-full bg-slate-300 opacity-60 shrink-0"></div>
+                  <div class="w-2.5 h-2.5 rounded-full bg-slate-400 opacity-75 shrink-0"></div>
+                  <div class="ml-1 w-5 h-px bg-gradient-to-r from-slate-300 to-indigo-200 shrink-0"></div>
                 </div>
                 <div v-if="ancestors.length > 0" class="flex items-start shrink-0">
                   <LineageNode
@@ -556,7 +557,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </template>
             </template>
 
-            <!-- ── Deep view: full ancestor chain with branch points ── -->
+            <!-- ── Deep view: compact dots + hover tooltips ── -->
             <template v-else>
               <template v-if="!config.promoted_from_uuid">
                 <div class="flex items-start shrink-0">
@@ -568,10 +569,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 </div>
               </template>
               <template v-else-if="ancestors.length > 0">
-                <!-- Full ancestor chain — each node may have branches below -->
+                <!-- Full ancestor chain — dots only; cards appear as hover tooltips -->
                 <div v-for="(ancestor, i) in ancestors" :key="ancestor.uuid" class="flex flex-col shrink-0">
                   <div class="flex items-start">
                     <LineageNode
+                      :compact="true"
                       :label="ancestor.name || ancestor.uuid.slice(0, 8)"
                       :environment="ancestor.environment"
                       :status="ancestor.approval_status"
@@ -580,11 +582,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                     />
                     <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-slate-300 to-indigo-300"></div>
                   </div>
-                  <!-- Branch nodes below (siblings that diverged from this ancestor) -->
-                  <div v-if="ancestor.branches.length" class="mt-3 ml-[88px] pl-5 border-l border-slate-200 flex flex-col gap-3">
+                  <!-- Branch nodes below (compact dots) -->
+                  <div v-if="ancestor.branches.length" class="mt-3 ml-2 pl-5 border-l border-slate-200 flex flex-col gap-3">
                     <LineageNode
                       v-for="branch in ancestor.branches"
                       :key="branch.config_relation_uuid"
+                      :compact="true"
                       :label="branch.name || branch.config_relation_uuid.slice(0, 8)"
                       :environment="branch.environment"
                       :status="branch.approval_status ?? null"
