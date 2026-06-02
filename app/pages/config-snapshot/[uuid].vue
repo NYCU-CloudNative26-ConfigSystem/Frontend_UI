@@ -570,8 +570,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </template>
               <template v-else-if="ancestors.length > 0">
                 <!-- Full ancestor chain — dots only; cards appear as hover tooltips -->
-                <div v-for="(ancestor, i) in ancestors" :key="ancestor.uuid" class="flex flex-col shrink-0">
-                  <div class="flex items-start">
+                <!-- Each ancestor: [node+branches column] + [connector] as siblings so branches
+                     don't affect where the connector starts. -->
+                <div v-for="(ancestor, i) in ancestors" :key="ancestor.uuid" class="flex items-start shrink-0">
+                  <!-- Node column: compact dot on top, branch dots below -->
+                  <div class="flex flex-col items-start">
                     <LineageNode
                       :compact="true"
                       :label="ancestor.name || ancestor.uuid.slice(0, 8)"
@@ -580,21 +583,22 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                       :to="`/config-snapshot/${ancestor.uuid}?proj=${projId}&cmp=${cmpId}&env=${ancestor.environment}`"
                       :tag="i === ancestors.length - 1 ? 'parent' : ''"
                     />
-                    <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-slate-300 to-indigo-300"></div>
+                    <!-- Branch nodes below, vertically connected to parent dot -->
+                    <div v-if="ancestor.branches.length" class="mt-2 ml-[6px] pl-2 border-l border-slate-200 flex flex-col gap-2">
+                      <LineageNode
+                        v-for="branch in ancestor.branches"
+                        :key="branch.config_relation_uuid"
+                        :compact="true"
+                        :label="branch.name || branch.config_relation_uuid.slice(0, 8)"
+                        :environment="branch.environment"
+                        :status="branch.approval_status ?? null"
+                        :to="`/config-snapshot/${branch.config_relation_uuid}?proj=${projId}&cmp=${cmpId}&env=${branch.environment}`"
+                        tag="branch"
+                      />
+                    </div>
                   </div>
-                  <!-- Branch nodes below (compact dots) -->
-                  <div v-if="ancestor.branches.length" class="mt-3 ml-2 pl-5 border-l border-slate-200 flex flex-col gap-3">
-                    <LineageNode
-                      v-for="branch in ancestor.branches"
-                      :key="branch.config_relation_uuid"
-                      :compact="true"
-                      :label="branch.name || branch.config_relation_uuid.slice(0, 8)"
-                      :environment="branch.environment"
-                      :status="branch.approval_status ?? null"
-                      :to="`/config-snapshot/${branch.config_relation_uuid}?proj=${projId}&cmp=${cmpId}&env=${branch.environment}`"
-                      tag="branch"
-                    />
-                  </div>
+                  <!-- Connector: sibling of node column, always flush with dot height -->
+                  <div class="self-start mt-3 mx-3 w-8 shrink-0 h-px bg-gradient-to-r from-slate-300 to-indigo-300"></div>
                 </div>
               </template>
               <template v-else>
