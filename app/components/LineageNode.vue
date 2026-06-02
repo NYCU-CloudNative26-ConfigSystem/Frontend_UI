@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { resolveComponent } from 'vue'
+import { resolveComponent, ref } from 'vue'
 
 const props = defineProps<{
   label: string
@@ -8,17 +8,36 @@ const props = defineProps<{
   to?: string      // if set, renders as a NuxtLink (clickable)
   current?: boolean // true = indigo highlight + ping dot (this snapshot)
   tag?: string     // suffix after environment, e.g. "parent" or "this snapshot"
-  compact?: boolean // dots-only mode — card hidden until hover
+  compact?: boolean // dots-only mode — card is a viewport-fixed tooltip on hover
 }>()
 
 const NuxtLink = resolveComponent('NuxtLink')
+
+// Compact tooltip state — positioned from getBoundingClientRect so fixed works
+const tooltipVisible = ref(false)
+const tooltipTop = ref('0px')
+const tooltipLeft = ref('0px')
+
+function onMouseEnter(e: MouseEvent) {
+  if (!props.compact || props.current) return
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  tooltipTop.value = `${rect.bottom + 8}px`
+  tooltipLeft.value = `${rect.left + rect.width / 2}px`
+  tooltipVisible.value = true
+}
+function onMouseLeave() {
+  if (!props.compact || props.current) return
+  tooltipVisible.value = false
+}
 </script>
 
 <template>
   <component
     :is="to ? NuxtLink : 'div'"
     :to="to"
-    :class="['flex flex-col items-center group', compact && !current ? 'gap-0' : 'gap-3']"
+    :class="['flex flex-col items-center gap-3 group', compact && !current && 'cursor-pointer']"
+    @mouseenter="onMouseEnter"
+    @mouseleave="onMouseLeave"
   >
     <!-- Dot -->
     <div class="relative z-10 mt-1 shrink-0">
@@ -52,20 +71,25 @@ const NuxtLink = resolveComponent('NuxtLink')
       </p>
     </div>
 
-    <!-- Compact hover-reveal card (hidden by default, expands below dot on hover) -->
-    <div v-if="compact && !current"
-      class="w-44 overflow-hidden max-h-0 group-hover:max-h-[130px] transition-all duration-200">
-      <div class="mt-3 rounded-xl px-3.5 py-3 bg-white ring-1 ring-slate-200 shadow-sm">
-        <div class="text-xs font-semibold truncate text-slate-700">{{ label }}</div>
-        <span v-if="status" :class="['text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0', {
-          'bg-yellow-100 text-yellow-700': status === 'pending',
-          'bg-green-100 text-green-700':   status === 'approved',
-          'bg-red-100 text-red-600':        status === 'rejected',
-        }]">{{ status }}</span>
+    <!-- Compact tooltip: teleported to body so it escapes any overflow container -->
+    <Teleport v-if="compact && !current" to="body">
+      <div
+        v-show="tooltipVisible"
+        class="fixed z-50 w-44 rounded-xl px-3.5 py-3 bg-white ring-1 ring-slate-200 shadow-lg pointer-events-none -translate-x-1/2"
+        :style="{ top: tooltipTop, left: tooltipLeft }"
+      >
+        <div>
+          <div class="text-xs font-semibold truncate text-slate-700">{{ label }}</div>
+          <span v-if="status" :class="['text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0', {
+            'bg-yellow-100 text-yellow-700': status === 'pending',
+            'bg-green-100 text-green-700':   status === 'approved',
+            'bg-red-100 text-red-600':        status === 'rejected',
+          }]">{{ status }}</span>
+        </div>
         <p class="mt-0.5 text-[11px] capitalize text-slate-400">
           {{ environment }}<template v-if="tag"> · {{ tag }}</template>
         </p>
       </div>
-    </div>
+    </Teleport>
   </component>
 </template>
