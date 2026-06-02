@@ -8,7 +8,7 @@ const props = defineProps<{
   to?: string      // if set, renders as a NuxtLink (clickable)
   current?: boolean // true = indigo highlight + ping dot (this snapshot)
   tag?: string     // suffix after environment, e.g. "parent" or "this snapshot"
-  compact?: boolean // dots-only mode — card becomes an absolute tooltip on hover
+  compact?: boolean // dots-only mode — card hidden until hover
 }>()
 
 const NuxtLink = resolveComponent('NuxtLink')
@@ -18,7 +18,7 @@ const NuxtLink = resolveComponent('NuxtLink')
   <component
     :is="to ? NuxtLink : 'div'"
     :to="to"
-    :class="['flex flex-col items-center gap-3 group', compact && !current && 'relative']"
+    :class="['flex flex-col items-center group', compact && !current ? 'gap-0' : 'gap-3']"
   >
     <!-- Dot -->
     <div class="relative z-10 mt-1 shrink-0">
@@ -52,22 +52,20 @@ const NuxtLink = resolveComponent('NuxtLink')
       </p>
     </div>
 
-    <!-- Compact tooltip (absolute, appears on hover, never for current) -->
+    <!-- Compact hover-reveal card (hidden by default, expands below dot on hover) -->
     <div v-if="compact && !current"
-      class="absolute top-6 left-1/2 -translate-x-1/2 z-20 pointer-events-none
-             opacity-0 group-hover:opacity-100 transition-opacity duration-200
-             rounded-xl px-3.5 py-3 w-44 bg-white ring-1 ring-slate-200 shadow-lg">
-      <div>
+      class="w-44 overflow-hidden max-h-0 group-hover:max-h-[130px] transition-all duration-200">
+      <div class="mt-3 rounded-xl px-3.5 py-3 bg-white ring-1 ring-slate-200 shadow-sm">
         <div class="text-xs font-semibold truncate text-slate-700">{{ label }}</div>
         <span v-if="status" :class="['text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0', {
           'bg-yellow-100 text-yellow-700': status === 'pending',
           'bg-green-100 text-green-700':   status === 'approved',
           'bg-red-100 text-red-600':        status === 'rejected',
         }]">{{ status }}</span>
+        <p class="mt-0.5 text-[11px] capitalize text-slate-400">
+          {{ environment }}<template v-if="tag"> · {{ tag }}</template>
+        </p>
       </div>
-      <p class="mt-0.5 text-[11px] capitalize text-slate-400">
-        {{ environment }}<template v-if="tag"> · {{ tag }}</template>
-      </p>
     </div>
   </component>
 </template>

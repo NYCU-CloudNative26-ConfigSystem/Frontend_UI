@@ -507,7 +507,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             </div>
           </div>
 
-          <div :class="['flex items-start overflow-x-auto', lineageView === 'deep' ? 'pb-28' : 'pb-1']">
+          <div class="flex items-start overflow-x-auto pb-1">
 
             <!-- ── Focus view: just the direct parent ── -->
             <template v-if="lineageView === 'focus'">
