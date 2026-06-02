@@ -348,6 +348,30 @@ async function rejectConfig() {
   }
 }
 
+// ── Deploy ────────────────────────────────────────────────────────────────────
+
+const deploying = ref(false)
+const deploySuccess = ref('')
+const deployError = ref('')
+
+async function deployConfig() {
+  deploying.value = true
+  deploySuccess.value = ''
+  deployError.value = ''
+  try {
+    await api.export.deploy(uuid.value, {
+      proj_id: projId.value,
+      cmp_id: cmpId.value,
+      environment: config.value!.environment,
+    }, auth.token)
+    deploySuccess.value = 'Deployment triggered!'
+  } catch (e: unknown) {
+    deployError.value = e instanceof Error ? e.message : 'Deploy failed. Check GitHub Actions.'
+  } finally {
+    deploying.value = false
+  }
+}
+
 // ── Promote ───────────────────────────────────────────────────────────────────
 
 const promoting = ref(false)
@@ -755,6 +779,28 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               class="rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold ring-1 ring-blue-200 text-blue-600 hover:bg-blue-50 transition shrink-0">
               Edit
             </button>
+          </div>
+        </div>
+
+        <!-- Deploy action (approved snapshots only) -->
+        <div v-if="localApprovalStatus === 'approved'" class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h3 class="font-semibold text-slate-900 text-sm">Deploy config</h3>
+              <p class="text-xs text-slate-400 mt-0.5">Push this snapshot to the live environment via CI/CD</p>
+            </div>
+            <button
+              @click="deployConfig"
+              :disabled="deploying || !!deploySuccess"
+              class="rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold transition shrink-0"
+              :class="deploySuccess
+                ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40'">
+              {{ deploySuccess ? deploySuccess : deploying ? 'Deploying…' : 'Deploy' }}
+            </button>
+          </div>
+          <div v-if="deployError" class="mt-3 text-sm text-red-600 bg-red-50 ring-1 ring-red-200 rounded-xl px-3 py-2">
+            {{ deployError }}
           </div>
         </div>
 

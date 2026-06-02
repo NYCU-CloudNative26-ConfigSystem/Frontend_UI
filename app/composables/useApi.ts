@@ -611,6 +611,11 @@ export function useApi() {
           `${BASE.export}/api/v1/exports/download`,
           { method: 'POST', body: JSON.stringify(payload), headers: { Authorization: `Bearer ${token}` } },
         ),
+      deploy: (versionUuid: string, body: { proj_id: string; cmp_id: string; environment: string }, token: string) =>
+        req<{ status: string }>(
+          `${BASE.export}/api/v1/exports/deploy/${encodeURIComponent(versionUuid)}`,
+          { method: 'POST', body: JSON.stringify(body), headers: { Authorization: `Bearer ${token}` } },
+        ),
     },
   };
 }
