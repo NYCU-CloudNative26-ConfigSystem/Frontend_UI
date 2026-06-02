@@ -69,6 +69,7 @@ jobs:
         with:
           repository: NYCU-CloudNative26-ConfigSystem/config_system
           token: ${{ secrets.GH_PAT }}
+          ref: ${{ github.ref_name }}
           path: infra
       - uses: google-github-actions/auth@v2
         with:
@@ -121,6 +122,7 @@ jobs:
         with:
           repository: NYCU-CloudNative26-ConfigSystem/config_system
           token: ${{ secrets.GH_PAT }}
+          ref: ${{ github.ref_name }}
           path: infra
       - uses: google-github-actions/auth@v2
         with:
