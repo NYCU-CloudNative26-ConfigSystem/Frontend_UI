@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CompanyResponse } from '~/composables/useApi'
+import type { CompanyResponse, ProjectResponse } from '~/composables/useApi'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -53,6 +53,119 @@ async function createCompany() {
     creating.value = false
   }
 }
+
+// ── Projects Modal & Hover Preview ─────────────────────────────────────────────
+
+const showProjectsModal = ref(false)
+const selectedCompany = ref<CompanyResponse | null>(null)
+const companyProjects = ref<ProjectResponse[]>([])
+const loadingProjects = ref(false)
+const projectsError = ref('')
+
+// Hovering details
+const hoveredProject = ref<ProjectResponse | null>(null)
+const hoveredPosition = ref({ x: 0, y: 0 })
+const projectDetails = ref<Record<string, Record<string, { status: string; rows: { key: string; val: string }[] } | null>>>({})
+const detailsLoading = ref(false)
+
+function stripRef(r: string): string {
+  return r.startsWith('VALUE:') || r.startsWith('GROUP:') ? r.slice(6) : r
+}
+
+function formatDate(iso: string | undefined): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleString()
+}
+
+async function openProjects(company: CompanyResponse) {
+  selectedCompany.value = company
+  companyProjects.value = []
+  projectsError.value = ''
+  loadingProjects.value = true
+  showProjectsModal.value = true
+  try {
+    companyProjects.value = await api.projects.list(auth.token, company.cmp_id)
+  } catch (e: unknown) {
+    projectsError.value = e instanceof Error ? e.message : 'Failed to load projects'
+  } finally {
+    loadingProjects.value = false
+  }
+}
+
+function handleProjectMouseEnter(proj: ProjectResponse, event: MouseEvent) {
+  hoveredProject.value = proj
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  hoveredPosition.value = {
+    x: rect.right + 12,
+    y: rect.top
+  }
+  if (hoveredPosition.value.x + 320 > window.innerWidth) {
+    hoveredPosition.value.x = rect.left - 332
+  }
+  fetchProjectConfigDetails(proj.proj_id)
+}
+
+function handleProjectMouseLeave() {
+  hoveredProject.value = null
+}
+
+async function fetchProjectConfigDetails(projId: string) {
+  if (projectDetails.value[projId]) return // already cached
+  
+  detailsLoading.value = true
+  projectDetails.value[projId] = {}
+  
+  try {
+    const envs = ['development', 'testing', 'staging', 'production']
+    const cmp = selectedCompany.value?.cmp_id
+    if (!cmp) return
+    
+    const results = await Promise.all(envs.map(async env => {
+      try {
+        const config = await api.configTable.getConfig(projId, cmp, env, auth.token)
+        if (!config || !config.rows?.length) return { env, data: null }
+        
+        // Resolve the first 5 rows
+        const rowsToResolve = config.rows.slice(0, 5)
+        const resolvedRows = await Promise.all(rowsToResolve.map(async row => {
+          const nameNode = await api.ssot.resolveNode(row.key, auth.token).catch(() => null)
+          const keyName = nameNode?.type === 'name' ? (nameNode.name_val ?? row.key) : row.key
+          
+          const stripped = stripRef(row.val)
+          const valNode = await api.ssot.resolveNode(stripped, auth.token).catch(() => null)
+          let valDisplay = row.val
+          if (valNode?.type === 'value') {
+            valDisplay = valNode.is_sensitive ? '(sensitive)' : String(valNode.val ?? '')
+          } else if (valNode?.type === 'group') {
+            valDisplay = valNode.isArray ? '[]' : '{}'
+          }
+          
+          return { key: keyName, val: valDisplay }
+        }))
+        
+        return {
+          env,
+          data: {
+            status: config.approval_status || 'unknown',
+            rows: resolvedRows
+          }
+        }
+      } catch {
+        return { env, data: null }
+      }
+    }))
+    
+    const projectCache: Record<string, any> = {}
+    for (const res of results) {
+      if (res.data) projectCache[res.env] = res.data
+    }
+    projectDetails.value[projId] = projectCache
+  } catch (err) {
+    console.error('Failed to load project configs:', err)
+  } finally {
+    detailsLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -101,19 +214,102 @@ async function createCompany() {
       <!-- Company list -->
       <div class="space-y-2">
         <div v-for="company in companies" :key="company.cmp_id"
-          class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-4">
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <div class="flex items-center gap-2 flex-wrap">
-                <h3 class="font-semibold text-slate-900">{{ company.display_name }}</h3>
-                <span class="font-mono text-xs bg-slate-100 text-slate-500 rounded-md px-2 py-0.5">{{ company.cmp_id }}</span>
+          @click="openProjects(company)"
+          class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-4 hover:ring-blue-500/40 hover:shadow-sm transition-all cursor-pointer text-left group flex items-center justify-between">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h3 class="font-semibold text-slate-900 group-hover:text-blue-700 transition">{{ company.display_name }}</h3>
+              <span class="font-mono text-xs bg-slate-100 text-slate-500 rounded-md px-2 py-0.5">{{ company.cmp_id }}</span>
+            </div>
+            <p v-if="company.description" class="text-sm text-slate-500 mt-1">{{ company.description }}</p>
+            <p class="text-xs text-slate-400 mt-1">Created by {{ company.created_by }}</p>
+          </div>
+          <span class="text-slate-300 group-hover:text-blue-500 transition shrink-0 ml-3 text-lg">›</span>
+        </div>
+      </div>
+
+    <!-- Projects Modal -->
+    <AppModal v-model="showProjectsModal" :title="`Projects for ${selectedCompany?.display_name || ''}`">
+      <div class="px-5 py-4 space-y-4">
+        <div v-if="loadingProjects" class="text-center py-6 text-sm text-slate-400">Loading projects...</div>
+        <div v-else-if="projectsError" class="text-sm text-red-600 font-medium">{{ projectsError }}</div>
+        <div v-else-if="companyProjects.length === 0" class="text-center py-6 text-sm text-slate-400">
+          No projects linked to this company.
+        </div>
+        <div v-else class="grid grid-cols-1 gap-2.5 relative">
+          <NuxtLink v-for="proj in companyProjects" :key="proj.proj_id"
+            :to="`/config?proj=${encodeURIComponent(proj.proj_id)}&cmp=${encodeURIComponent(selectedCompany?.cmp_id || '')}`"
+            @mouseenter="handleProjectMouseEnter(proj, $event)"
+            @mouseleave="handleProjectMouseLeave"
+            class="block relative border border-slate-100 rounded-xl p-3.5 hover:border-blue-500 hover:bg-blue-50/10 transition cursor-pointer">
+            
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-slate-900">{{ proj.display_name }}</span>
+              <span class="font-mono text-xs bg-slate-100 text-slate-500 rounded-md px-2 py-0.5">{{ proj.proj_id }}</span>
+            </div>
+            <p v-if="proj.description" class="text-xs text-slate-500 mt-1 line-clamp-1">{{ proj.description }}</p>
+          </NuxtLink>
+        </div>
+      </div>
+    </AppModal>
+
+    <!-- Hover Info Popover -->
+    <div v-if="hoveredProject" 
+         :style="{ top: `${hoveredPosition.y}px`, left: `${hoveredPosition.x}px` }"
+         class="fixed z-[60] w-80 bg-white rounded-2xl shadow-2xl border border-slate-100/80 p-4 pointer-events-none transition-all duration-150 space-y-3">
+      <div>
+        <h4 class="font-semibold text-slate-900 text-sm truncate">{{ hoveredProject.display_name }}</h4>
+        <span class="font-mono text-[10px] text-slate-400">{{ hoveredProject.proj_id }}</span>
+        <p v-if="hoveredProject.description" class="text-xs text-slate-500 mt-1.5 line-clamp-2 bg-slate-50 p-2 rounded-lg italic">
+          {{ hoveredProject.description }}
+        </p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2 pt-2.5 border-t border-slate-100 text-[10px] text-slate-500">
+        <div>
+          <span class="block text-slate-400 uppercase font-bold text-[9px] tracking-wide">Created by</span>
+          <span class="font-medium text-slate-700 truncate block">{{ hoveredProject.created_by }}</span>
+        </div>
+        <div>
+          <span class="block text-slate-400 uppercase font-bold text-[9px] tracking-wide">Created at</span>
+          <span class="font-medium text-slate-700 truncate block">{{ formatDate(hoveredProject.date_created) }}</span>
+        </div>
+      </div>
+
+      <div class="pt-2.5 border-t border-slate-100 space-y-2">
+        <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Latest Environments</span>
+        
+        <div v-if="detailsLoading" class="flex items-center gap-1.5 text-xs text-slate-400 py-1">
+          <span class="animate-spin text-blue-500">⏳</span> Loading configurations...
+        </div>
+        <div v-else class="space-y-2.5">
+          <div v-for="env in ['development', 'testing', 'staging', 'production']" :key="env" class="space-y-1">
+            <div class="flex items-center justify-between text-xs">
+              <span class="capitalize font-medium text-slate-600">{{ env }}</span>
+              <span v-if="projectDetails[hoveredProject.proj_id]?.[env]"
+                :class="[
+                  'text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider',
+                  projectDetails[hoveredProject.proj_id]?.[env]?.status === 'approved' ? 'bg-emerald-50 text-emerald-700' :
+                  projectDetails[hoveredProject.proj_id]?.[env]?.status === 'pending' ? 'bg-amber-50 text-amber-700' :
+                  'bg-slate-50 text-slate-500'
+                ]">
+                {{ projectDetails[hoveredProject.proj_id]?.[env]?.status }}
+              </span>
+              <span v-else class="text-[9px] text-slate-400">no config</span>
+            </div>
+            
+            <!-- Key-values preview -->
+            <div v-if="projectDetails[hoveredProject.proj_id]?.[env]?.rows?.length"
+              class="bg-slate-50/50 rounded-lg p-2 font-mono text-[10px] text-slate-600 space-y-0.5 max-h-24 overflow-y-auto font-normal">
+              <div v-for="row in projectDetails[hoveredProject.proj_id]?.[env]?.rows" :key="row.key" class="flex justify-between gap-2">
+                <span class="text-slate-800 font-semibold truncate max-w-[120px]">{{ row.key }}</span>
+                <span class="text-slate-500 truncate max-w-[140px]">{{ row.val }}</span>
               </div>
-              <p v-if="company.description" class="text-sm text-slate-500 mt-1">{{ company.description }}</p>
-              <p class="text-xs text-slate-400 mt-1">Created by {{ company.created_by }}</p>
             </div>
           </div>
         </div>
       </div>
+    </div>
 
   </PageShell>
 </template>
