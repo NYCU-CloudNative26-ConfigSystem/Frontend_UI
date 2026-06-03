@@ -24,6 +24,19 @@ const filtered = computed(() =>
     : records.value.filter(r => r.environment === envFilter.value)
 )
 
+// First triggered deploy per environment (records are newest-first)
+const latestDeployedIds = computed(() => {
+  const seen = new Set<string>()
+  const ids = new Set<number>()
+  for (const r of records.value) {
+    if (r.status === 'triggered' && !seen.has(r.environment)) {
+      seen.add(r.environment)
+      ids.add(r.id)
+    }
+  }
+  return ids
+})
+
 async function load() {
   if (!projId.value || !cmpId.value) return
   loading.value = true
@@ -145,10 +158,16 @@ onMounted(load)
                 </td>
                 <td class="px-3 py-3 text-xs text-slate-600">{{ log.deployed_by }}</td>
                 <td class="px-3 py-3">
-                  <span :class="['px-2 py-0.5 rounded-full text-xs font-semibold',
-                    log.status === 'triggered' ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-red-50 text-red-600']">
-                    {{ log.status }}
-                  </span>
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span :class="['px-2 py-0.5 rounded-full text-xs font-semibold',
+                      log.status === 'triggered' ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-red-50 text-red-600']">
+                      {{ log.status }}
+                    </span>
+                    <span v-if="latestDeployedIds.has(log.id)"
+                      class="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-600 text-white">
+                      Latest
+                    </span>
+                  </div>
                 </td>
                 <td class="px-3 py-3">
                   <button
