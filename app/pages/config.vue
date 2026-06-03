@@ -3,6 +3,7 @@ import type {
   CompanyResponse,
   ConfigHistoryItem,
   ConfigWriteEntry,
+  DeployLogOut,
   ProjectResponse,
   ProjectTemplateKey,
   ProjectTemplateVersion,
@@ -303,7 +304,11 @@ async function selectCompany(id: string) {
   cmpId.value = id
   newConfigCmpId.value = ''
   envId.value = ''
+  cmpDeployHistory.value = []
   router.replace({ query: { proj: projId.value, cmp: id } })
+  api.export.deployHistory(projId.value, id, auth.token)
+    .then(r => { cmpDeployHistory.value = r; return enrichDeployedNames(r) })
+    .catch(() => {})
 }
 
 async function selectEnvironment(env: string) {
@@ -334,13 +339,50 @@ function backToCompanyList() {
 const snapshotHistory = ref<ConfigHistoryItem[]>([])
 const historyLoading = ref(false)
 const historyError = ref('')
+const cmpDeployHistory = ref<DeployLogOut[]>([])
+const deployedNames = ref<Record<string, string>>({})
+
+const currentDeployedUuid = computed(() =>
+  cmpDeployHistory.value.find(d => d.environment === envId.value && d.status === 'triggered')?.version_uuid ?? null
+)
+
+function latestDeployForEnv(env: string) {
+  return cmpDeployHistory.value.find(d => d.environment === env && d.status === 'triggered') ?? null
+}
+
+function deployedNameForEnv(env: string): string | null {
+  const deploy = latestDeployForEnv(env)
+  if (!deploy) return null
+  return deployedNames.value[deploy.version_uuid] || deploy.snapshot_name || null
+}
+
+async function enrichDeployedNames(deploys: DeployLogOut[]) {
+  const uuids = [...new Set(
+    deploys
+      .filter(d => d.status === 'triggered' && !deployedNames.value[d.version_uuid])
+      .map(d => d.version_uuid)
+  )]
+  await Promise.all(
+    uuids.map(uuid =>
+      api.configTable.getByUuid(uuid, auth.token)
+        .then(cfg => { if (cfg.name) deployedNames.value[uuid] = cfg.name })
+        .catch(() => {})
+    )
+  )
+}
 
 async function loadHistory() {
   if (!projId.value || !cmpId.value || !envId.value) return
   historyLoading.value = true
   historyError.value = ''
   try {
-    snapshotHistory.value = await api.configTable.history(projId.value, cmpId.value, envId.value, auth.token)
+    const [history, deploys] = await Promise.all([
+      api.configTable.history(projId.value, cmpId.value, envId.value, auth.token),
+      api.export.deployHistory(projId.value, cmpId.value, auth.token).catch(() => [] as DeployLogOut[]),
+    ])
+    snapshotHistory.value = history
+    cmpDeployHistory.value = deploys
+    enrichDeployedNames(deploys).catch(() => {})
   } catch (e: unknown) {
     historyError.value = e instanceof Error ? e.message : 'Failed to load history'
   } finally {
@@ -1124,24 +1166,38 @@ async function submitConfig() {
             <button
               v-for="env in ENVIRONMENTS" :key="env.id"
               @click="selectEnvironment(env.id)"
-              class="rounded-2xl ring-1 ring-slate-200 p-5 text-left transition-all hover:shadow-md group"
+              class="rounded-2xl ring-1 ring-slate-200 p-5 text-left transition-all hover:shadow-md group flex flex-col justify-between min-h-[100px]"
               :class="{
                 'hover:ring-green-400 hover:bg-green-50/30': env.id === 'development',
                 'hover:ring-yellow-400 hover:bg-yellow-50/30': env.id === 'testing',
                 'hover:ring-orange-400 hover:bg-orange-50/30': env.id === 'staging',
                 'hover:ring-blue-400 hover:bg-blue-50/30': env.id === 'production',
               }">
-              <div class="flex items-center gap-2 mb-2">
-                <span class="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0"
-                  :class="{
-                    'bg-green-100 text-green-600': env.id === 'development',
-                    'bg-yellow-100 text-yellow-600': env.id === 'testing',
-                    'bg-orange-100 text-orange-600': env.id === 'staging',
-                    'bg-blue-100 text-blue-600': env.id === 'production',
-                  }">{{ env.label[0] }}</span>
-                <span class="font-semibold text-slate-800 text-sm">{{ env.label }}</span>
+              <div>
+                <div class="flex items-center gap-2 mb-3">
+                  <span class="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0"
+                    :class="{
+                      'bg-green-100 text-green-600': env.id === 'development',
+                      'bg-yellow-100 text-yellow-600': env.id === 'testing',
+                      'bg-orange-100 text-orange-600': env.id === 'staging',
+                      'bg-blue-100 text-blue-600': env.id === 'production',
+                    }">{{ env.label[0] }}</span>
+                  <span class="font-semibold text-slate-800 text-sm">{{ env.label }}</span>
+                </div>
+                <!-- Deployed version info -->
+                <template v-if="latestDeployForEnv(env.id)">
+                  <p class="text-xs text-slate-400 mb-0.5">Deployed</p>
+                  <p class="text-xs font-semibold text-slate-700 truncate">
+                    {{ deployedNameForEnv(env.id) || latestDeployForEnv(env.id)!.version_uuid.slice(0, 8) }}
+                  </p>
+                  <p class="text-xs text-slate-400 mt-0.5">
+                    {{ new Date(latestDeployForEnv(env.id)!.deployed_at).toLocaleString() }}
+                    · {{ latestDeployForEnv(env.id)!.deployed_by }}
+                  </p>
+                </template>
+                <p v-else class="text-xs text-slate-300 italic">No deployments yet</p>
               </div>
-              <span class="text-xs font-medium opacity-0 group-hover:opacity-100 transition"
+              <span class="text-xs font-medium mt-3 opacity-0 group-hover:opacity-100 transition"
                 :class="{
                   'text-green-500': env.id === 'development',
                   'text-yellow-500': env.id === 'testing',
@@ -1163,6 +1219,11 @@ async function submitConfig() {
             ← Environments
           </button>
           <div class="flex items-center gap-2">
+            <button
+              @click="router.push({ path: '/deploy-history', query: { proj: projId, cmp: cmpId } })"
+              class="rounded-xl px-4 py-2 text-sm font-semibold transition shrink-0 bg-slate-100 text-slate-700 hover:bg-slate-200">
+              Deploy History
+            </button>
             <button
               @click="router.push({ path: '/config-diff', query: { proj: projId, cmp: cmpId, env1: envId } })"
               class="rounded-xl px-4 py-2 text-sm font-semibold transition shrink-0 bg-slate-100 text-slate-700 hover:bg-slate-200">
@@ -1392,6 +1453,11 @@ async function submitConfig() {
             class="w-full bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-4 flex items-center justify-between text-left hover:ring-blue-400/40 hover:shadow-sm transition-all group">
             <div class="flex flex-col min-w-0 gap-1">
               <div class="flex flex-wrap items-center gap-2">
+                <!-- Deployed badge -->
+                <span v-if="snap.config_relation_uuid === currentDeployedUuid"
+                  class="bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0 ring-1 ring-emerald-200">
+                  Deployed
+                </span>
                 <!-- Approval status badge -->
                 <span v-if="snap.is_latest && snap.approval_status === 'approved'"
                   class="bg-blue-50 text-blue-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Latest</span>
