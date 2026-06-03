@@ -307,7 +307,7 @@ async function selectCompany(id: string) {
   cmpDeployHistory.value = []
   router.replace({ query: { proj: projId.value, cmp: id } })
   api.export.deployHistory(projId.value, id, auth.token)
-    .then(r => { cmpDeployHistory.value = r })
+    .then(r => { cmpDeployHistory.value = r; return enrichDeployedNames(r) })
     .catch(() => {})
 }
 
@@ -340,6 +340,7 @@ const snapshotHistory = ref<ConfigHistoryItem[]>([])
 const historyLoading = ref(false)
 const historyError = ref('')
 const cmpDeployHistory = ref<DeployLogOut[]>([])
+const deployedNames = ref<Record<string, string>>({})
 
 const currentDeployedUuid = computed(() =>
   cmpDeployHistory.value.find(d => d.environment === envId.value && d.status === 'triggered')?.version_uuid ?? null
@@ -347,6 +348,27 @@ const currentDeployedUuid = computed(() =>
 
 function latestDeployForEnv(env: string) {
   return cmpDeployHistory.value.find(d => d.environment === env && d.status === 'triggered') ?? null
+}
+
+function deployedNameForEnv(env: string): string | null {
+  const deploy = latestDeployForEnv(env)
+  if (!deploy) return null
+  return deployedNames.value[deploy.version_uuid] || deploy.snapshot_name || null
+}
+
+async function enrichDeployedNames(deploys: DeployLogOut[]) {
+  const uuids = [...new Set(
+    deploys
+      .filter(d => d.status === 'triggered' && !deployedNames.value[d.version_uuid])
+      .map(d => d.version_uuid)
+  )]
+  await Promise.all(
+    uuids.map(uuid =>
+      api.configTable.getByUuid(uuid, auth.token)
+        .then(cfg => { if (cfg.name) deployedNames.value[uuid] = cfg.name })
+        .catch(() => {})
+    )
+  )
 }
 
 async function loadHistory() {
@@ -360,6 +382,7 @@ async function loadHistory() {
     ])
     snapshotHistory.value = history
     cmpDeployHistory.value = deploys
+    enrichDeployedNames(deploys).catch(() => {})
   } catch (e: unknown) {
     historyError.value = e instanceof Error ? e.message : 'Failed to load history'
   } finally {
@@ -1164,8 +1187,8 @@ async function submitConfig() {
                 <!-- Deployed version info -->
                 <template v-if="latestDeployForEnv(env.id)">
                   <p class="text-xs text-slate-400 mb-0.5">Deployed</p>
-                  <p class="text-xs font-mono font-semibold text-slate-700 truncate">
-                    {{ latestDeployForEnv(env.id)!.snapshot_name || latestDeployForEnv(env.id)!.version_uuid.slice(0, 8) }}
+                  <p class="text-xs font-semibold text-slate-700 truncate">
+                    {{ deployedNameForEnv(env.id) || latestDeployForEnv(env.id)!.version_uuid.slice(0, 8) }}
                   </p>
                   <p class="text-xs text-slate-400 mt-0.5">
                     {{ new Date(latestDeployForEnv(env.id)!.deployed_at).toLocaleString() }}
