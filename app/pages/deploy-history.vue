@@ -15,6 +15,7 @@ const records = ref<DeployLogOut[]>([])
 const loading = ref(false)
 const error   = ref('')
 const envFilter = ref('all')
+const configNames = ref<Record<string, string>>({})
 
 const ENVIRONMENTS = ['all', 'development', 'testing', 'staging', 'production']
 
@@ -43,6 +44,14 @@ async function load() {
   error.value = ''
   try {
     records.value = await api.export.deployHistory(projId.value, cmpId.value, auth.token)
+    const uuids = [...new Set(records.value.map(r => r.version_uuid))]
+    Promise.all(
+      uuids.map(uuid =>
+        api.configTable.getByUuid(uuid, auth.token)
+          .then(cfg => { if (cfg.name) configNames.value[uuid] = cfg.name })
+          .catch(() => {})
+      )
+    )
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Failed to load deploy history'
   } finally {
@@ -128,6 +137,7 @@ onMounted(load)
               <tr class="text-xs text-slate-400 text-left border-b border-slate-100">
                 <th class="px-5 py-3 font-medium">When</th>
                 <th class="px-3 py-3 font-medium">Env</th>
+                <th class="px-3 py-3 font-medium">Config Name</th>
                 <th class="px-3 py-3 font-medium">Version</th>
                 <th class="px-3 py-3 font-medium">Format</th>
                 <th class="px-3 py-3 font-medium">Reason</th>
@@ -147,8 +157,13 @@ onMounted(load)
                     {{ log.environment }}
                   </span>
                 </td>
-                <td class="px-3 py-3 font-mono text-xs text-slate-500">
-                  {{ log.snapshot_name || log.version_uuid.slice(0, 8) }}
+                <td class="px-3 py-3 text-xs text-slate-700 font-medium max-w-[160px]">
+                  <span class="block truncate" :title="configNames[log.version_uuid] || log.snapshot_name || ''">
+                    {{ configNames[log.version_uuid] || log.snapshot_name || '—' }}
+                  </span>
+                </td>
+                <td class="px-3 py-3 font-mono text-xs text-slate-400">
+                  {{ log.version_uuid.slice(0, 8) }}
                 </td>
                 <td class="px-3 py-3 font-mono text-xs text-slate-500">
                   .{{ log.format }}
