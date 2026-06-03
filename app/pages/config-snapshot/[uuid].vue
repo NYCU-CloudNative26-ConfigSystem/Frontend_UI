@@ -380,7 +380,7 @@ async function deployConfig() {
       environment: config.value!.environment,
       format: deployFormat.value,
       reason: deployReason.value,
-      snapshot_name: changeDescription.value || '',
+      snapshot_name: config.value?.name || '',
     }, auth.token)
     deploySuccess.value = 'Deployment triggered!'
     deployReason.value = ''
