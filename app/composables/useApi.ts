@@ -366,11 +366,11 @@ export function useApi() {
           `${BASE.login}/api/v1/auth/register`,
           { method: "POST", body: JSON.stringify({ email, username, password, full_name, company, role }) },
         ),
-      login: (email: string, password: string) => {
+      login: (usernameOrEmail: string, password: string) => {
         console.log("Login URL:", `${BASE.login}/api/v1/auth/login`);
         return req<{ access_token: string; refresh_token: string }>(
           `${BASE.login}/api/v1/auth/login`,
-          { method: "POST", body: JSON.stringify({ email, password }) },
+          { method: "POST", body: JSON.stringify({ username: usernameOrEmail, password }) },
         );
       },
       me: (token: string) =>

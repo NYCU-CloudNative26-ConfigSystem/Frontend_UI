@@ -3,7 +3,7 @@ const route = useRoute()
 const api = useApi()
 const auth = useAuthStore()
 
-const email = ref('')
+const usernameOrEmail = ref('')
 const password = ref('')
 const { error, setError, clear } = useFormError()
 const registerSuccess = route.query.registered === '1'
@@ -11,7 +11,7 @@ const registerSuccess = route.query.registered === '1'
 async function login() {
   clear()
   try {
-    const res = await api.auth.login(email.value, password.value)
+    const res = await api.auth.login(usernameOrEmail.value, password.value)
     auth.setToken(res.access_token)
     if (res.refresh_token) auth.setRefreshToken(res.refresh_token)
     navigateTo('/home')
@@ -41,8 +41,8 @@ async function login() {
 
         <form @submit.prevent="login" class="space-y-4">
           <div class="space-y-1.5">
-            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide">Email</label>
-            <input v-model="email" type="email" placeholder="you@example.com" required
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide">Username or Email</label>
+            <input v-model="usernameOrEmail" type="text" placeholder="Username or Email" required
               class="w-full ring-1 ring-slate-200 rounded-xl px-3 py-2.5 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white transition" />
           </div>
           <div class="space-y-1.5">
