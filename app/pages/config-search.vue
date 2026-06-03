@@ -86,8 +86,9 @@ function goToSnapshot(item: ConfigHistoryItem) {
 
       <!-- Search box -->
       <SectionCard padded padding-class="px-5 py-5">
-        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Search</label>
+        <label for="config-search-input" class="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Search</label>
         <input
+          id="config-search-input"
           v-model="query"
           type="text"
           autofocus

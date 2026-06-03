@@ -8,7 +8,7 @@ test('redirects authenticated pages to login when there is no token', async ({ p
 
 test('logs in and lands on home', async ({ page }) => {
   await page.goto('/login')
-  await page.getByLabel('Email').fill('justin@example.com')
+  await page.getByLabel('Username or Email').fill('justin@example.com')
   await page.getByLabel('Password').fill('password')
   await page.getByRole('button', { name: 'Sign in' }).click()
 
