@@ -71,28 +71,21 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
-function statusClass(status: string) {
-  if (status === 'approved') return 'bg-emerald-50 text-emerald-700'
-  if (status === 'pending')  return 'bg-yellow-50 text-yellow-700'
-  if (status === 'rejected') return 'bg-red-50 text-red-700'
-  return 'bg-slate-100 text-slate-500'
-}
-
 function goToSnapshot(item: ConfigHistoryItem) {
   router.push(`/config-snapshot/${item.config_relation_uuid}`)
 }
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50">
-    <AppNav>
-      <span class="text-sm text-slate-700 font-semibold">Search Configs</span>
-    </AppNav>
-
-    <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+  <PageShell main-class="py-8 space-y-6">
+    <template #nav>
+      <AppNav>
+        <span class="text-sm text-slate-700 font-semibold">Search Configs</span>
+      </AppNav>
+    </template>
 
       <!-- Search box -->
-      <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
+      <SectionCard padded padding-class="px-5 py-5">
         <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Search</label>
         <input
           v-model="query"
@@ -101,7 +94,7 @@ function goToSnapshot(item: ConfigHistoryItem) {
           placeholder="Search by config name, project, company, key alias, or value…"
           class="w-full ring-1 ring-slate-200 rounded-xl px-4 py-3 text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
         <p class="text-xs text-slate-400 mt-2">Results appear as you type. Key and value search resolves through SSOT — sensitive values are never matched.</p>
-      </div>
+      </SectionCard>
 
       <!-- Loading -->
       <div v-if="loading" class="space-y-2">
@@ -119,10 +112,7 @@ function goToSnapshot(item: ConfigHistoryItem) {
           class="w-full bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-4 flex items-center justify-between text-left hover:ring-blue-400/40 hover:shadow-sm transition-all group">
           <div class="flex flex-col min-w-0 gap-1">
             <div class="flex flex-wrap items-center gap-2">
-              <span :class="statusClass(item.approval_status)"
-                class="text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0 capitalize">
-                {{ item.is_latest && item.approval_status === 'approved' ? 'Latest' : item.approval_status }}
-              </span>
+              <StatusBadge :status="item.approval_status" :is-latest="item.is_latest" />
               <span class="text-sm font-medium text-slate-800 truncate">
                 {{ item.name ?? '—' }}
               </span>
@@ -155,6 +145,5 @@ function goToSnapshot(item: ConfigHistoryItem) {
         Start typing to search across all configs.
       </div>
 
-    </div>
-  </div>
+  </PageShell>
 </template>

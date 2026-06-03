@@ -165,16 +165,14 @@ function keepAll() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50">
-
-    <!-- Nav -->
-    <AppNav>
-      <span class="font-semibold text-slate-700 capitalize truncate">
-        {{ snapshot?.environment ?? 'Config' }} update review
-      </span>
-    </AppNav>
-
-    <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
+  <PageShell>
+    <template #nav>
+      <AppNav>
+        <span class="font-semibold text-slate-700 capitalize truncate">
+          {{ snapshot?.environment ?? 'Config' }} update review
+        </span>
+      </AppNav>
+    </template>
 
       <!-- Back -->
       <div>
@@ -366,6 +364,5 @@ function keepAll() {
 
       </template>
 
-    </div>
-  </div>
+  </PageShell>
 </template>

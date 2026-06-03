@@ -56,13 +56,13 @@ async function createCompany() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50">
-    <AppNav><h1 class="font-semibold text-slate-900">Companies</h1></AppNav>
-
-    <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-3">
+  <PageShell main-class="space-y-3">
+    <template #nav>
+      <AppNav><h1 class="font-semibold text-slate-900">Companies</h1></AppNav>
+    </template>
 
       <!-- Create panel -->
-      <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
+      <SectionCard>
         <div class="flex items-center justify-between px-5 py-4">
           <span class="font-medium text-slate-800 text-sm">Create Company</span>
           <button @click="showCreateForm = !showCreateForm"
@@ -85,7 +85,7 @@ async function createCompany() {
             {{ creating ? 'Creating…' : 'Create' }}
           </button>
         </div>
-      </div>
+      </SectionCard>
 
       <!-- Error -->
       <AlertBox v-if="loadError">{{ loadError }}</AlertBox>
@@ -115,6 +115,5 @@ async function createCompany() {
         </div>
       </div>
 
-    </div>
-  </div>
+  </PageShell>
 </template>

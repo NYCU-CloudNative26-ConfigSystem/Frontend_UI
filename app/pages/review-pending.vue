@@ -35,19 +35,20 @@ onMounted(loadPending)
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50">
-    <AppNav>
-      <span class="font-semibold text-slate-900">Pending Reviews</span>
-    </AppNav>
+  <PageShell>
+    <template #nav>
+      <AppNav>
+        <span class="font-semibold text-slate-900">Pending Reviews</span>
+      </AppNav>
+    </template>
 
-    <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
       <div>
         <button @click="router.push('/home')" class="text-sm text-slate-400 hover:text-slate-700 transition">
           ← Back to home
         </button>
       </div>
 
-      <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5 flex items-center justify-between gap-3">
+      <SectionCard padded padding-class="px-5 py-5 flex items-center justify-between gap-3">
         <div>
           <h1 class="text-lg font-semibold text-slate-900">All pending review snapshots</h1>
           <p class="text-sm text-slate-400 mt-1">Open any item to review, compare, approve, or reject it.</p>
@@ -57,7 +58,7 @@ onMounted(loadPending)
           class="rounded-xl px-4 py-2 text-sm font-semibold ring-1 ring-slate-200 text-slate-600 hover:bg-slate-50 transition">
           Refresh
         </button>
-      </div>
+      </SectionCard>
 
       <AlertBox v-if="error">{{ error }}</AlertBox>
 
@@ -95,6 +96,5 @@ onMounted(loadPending)
           <span class="text-slate-300 group-hover:text-blue-500 shrink-0 ml-2 transition">›</span>
         </button>
       </div>
-    </div>
-  </div>
+  </PageShell>
 </template>

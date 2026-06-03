@@ -76,12 +76,12 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50">
-    <AppNav>
-      <span class="font-semibold text-slate-900 text-sm">Deploy History</span>
-    </AppNav>
-
-    <main class="max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
+  <PageShell width-class="max-w-5xl">
+    <template #nav>
+      <AppNav>
+        <span class="font-semibold text-slate-900 text-sm">Deploy History</span>
+      </AppNav>
+    </template>
 
       <!-- Selector bar -->
       <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-4 flex flex-wrap items-end gap-3">
@@ -207,6 +207,5 @@ onMounted(load)
         No deployments found for this project + company.
       </div>
 
-    </main>
-  </div>
+  </PageShell>
 </template>
