@@ -838,7 +838,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </div>
 
         <!-- Deploy history -->
-        <div v-if="deployHistory.length > 0" class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
+        <!-- <div v-if="deployHistory.length > 0" class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
           <h3 class="font-semibold text-slate-900 text-sm mb-3">Deploy history</h3>
           <div class="overflow-x-auto">
             <table class="w-full text-xs">
@@ -871,7 +871,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </tbody>
             </table>
           </div>
-        </div>
+        </div> -->
 
         <!-- Inherit action (all snapshots) -->
         <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-5">
