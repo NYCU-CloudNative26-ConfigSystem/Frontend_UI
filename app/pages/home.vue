@@ -48,15 +48,16 @@ onMounted(loadPendingReviews)
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50">
-    <AppNav :show-back="false">
-      <div class="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
-        <span class="text-white text-xs font-bold leading-none">CS</span>
-      </div>
-      <span class="font-semibold text-slate-900 text-sm">Config System</span>
-    </AppNav>
+  <PageShell>
+    <template #nav>
+      <AppNav :show-back="false">
+        <div class="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
+          <span class="text-white text-xs font-bold leading-none">CS</span>
+        </div>
+        <span class="font-semibold text-slate-900 text-sm">Config System</span>
+      </AppNav>
+    </template>
 
-    <main class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
       <!-- Navigation cards -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <NuxtLink to="/companies"
@@ -123,7 +124,7 @@ onMounted(loadPendingReviews)
         </NuxtLink>
       </div>
 
-      <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
+      <SectionCard>
         <div class="flex items-center justify-between px-5 py-4 border-b border-slate-50">
           <div>
             <h2 class="font-semibold text-slate-900 text-sm">Pending review</h2>
@@ -155,10 +156,10 @@ onMounted(loadPendingReviews)
             </div>
           </NuxtLink>
         </div>
-      </div>
+      </SectionCard>
 
       <!-- Service health -->
-      <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
+      <SectionCard>
         <div class="flex items-center justify-between px-5 py-4 border-b border-slate-50">
           <h2 class="font-semibold text-slate-900 text-sm">Service Health</h2>
           <button @click="checkHealth"
@@ -182,7 +183,6 @@ onMounted(loadPendingReviews)
             }" class="text-xs font-semibold">{{ status }}</span>
           </div>
         </div>
-      </div>
-    </main>
-  </div>
+      </SectionCard>
+  </PageShell>
 </template>

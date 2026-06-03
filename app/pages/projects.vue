@@ -118,17 +118,27 @@ const CHIPS_VISIBLE = 3
 function modeLabel(m: DisplayMode) {
   return m === 'truncated' ? 'Truncated' : m === 'collapsible' ? 'Collapsible' : 'Badge'
 }
+
+const displayModeOptions = computed(() =>
+  DISPLAY_MODES.map(value => ({ value, label: modeLabel(value) }))
+)
+
+function setCompanyDisplayMode(mode: string) {
+  if (!DISPLAY_MODES.includes(mode as DisplayMode)) return
+  companyDisplayMode.value = mode as DisplayMode
+  expandedCompanies.value = {}
+}
 </script>
 
 
 <template>
-  <div class="min-h-screen bg-slate-50">
-    <AppNav><h1 class="font-semibold text-slate-900">Projects</h1></AppNav>
-
-    <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-3">
+  <PageShell main-class="space-y-3">
+    <template #nav>
+      <AppNav><h1 class="font-semibold text-slate-900">Projects</h1></AppNav>
+    </template>
 
       <!-- Create project panel -->
-      <div class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
+      <SectionCard>
         <div class="flex items-center justify-between px-5 py-4">
           <span class="font-medium text-slate-800 text-sm">Create Project</span>
           <button @click="showCreateForm = !showCreateForm"
@@ -151,7 +161,7 @@ function modeLabel(m: DisplayMode) {
             {{ creating ? 'Creating…' : 'Create' }}
           </button>
         </div>
-      </div>
+      </SectionCard>
 
       <!-- Error -->
       <AlertBox v-if="loadError">{{ loadError }}</AlertBox>
@@ -165,19 +175,13 @@ function modeLabel(m: DisplayMode) {
       </div>
 
       <!-- Mode switcher -->
-      <div v-if="projects.length > 0" class="flex items-center gap-2">
+      <div v-if="projects.length > 0" class="flex flex-wrap items-center gap-2">
         <span class="text-xs text-slate-400 font-medium shrink-0">Company display:</span>
-        <div class="flex items-center gap-0.5 bg-white rounded-xl ring-1 ring-slate-900/5 p-1">
-          <button
-            v-for="m in DISPLAY_MODES" :key="m"
-            @click="companyDisplayMode = m; expandedCompanies = {}"
-            :class="companyDisplayMode === m
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'"
-            class="px-3 py-1.5 rounded-lg text-xs font-semibold transition">
-            {{ modeLabel(m) }}
-          </button>
-        </div>
+        <SegmentedControl
+          :model-value="companyDisplayMode"
+          :options="displayModeOptions"
+          variant="primary"
+          @update:model-value="setCompanyDisplayMode" />
       </div>
 
       <!-- Project cards -->
@@ -336,6 +340,5 @@ function modeLabel(m: DisplayMode) {
         </div>
       </div>
 
-    </div>
-  </div>
+  </PageShell>
 </template>

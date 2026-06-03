@@ -161,17 +161,15 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50">
-
-    <!-- Nav -->
-    <AppNav>
-      <button @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId } })"
-        class="text-slate-400 hover:text-slate-700 transition shrink-0 hidden sm:inline">Config</button>
-      <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
-      <span class="font-semibold text-slate-900">Environment Diff</span>
-    </AppNav>
-
-    <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
+  <PageShell>
+    <template #nav>
+      <AppNav>
+        <button @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId } })"
+          class="text-slate-400 hover:text-slate-700 transition shrink-0 hidden sm:inline">Config</button>
+        <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
+        <span class="font-semibold text-slate-900">Environment Diff</span>
+      </AppNav>
+    </template>
 
       <button @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId } })"
         class="text-sm text-slate-400 hover:text-slate-700 transition">← Back to config</button>
@@ -318,6 +316,5 @@ onMounted(() => {
         Click <strong>Compare</strong> to see the diff between these two environments.
       </div>
 
-    </div>
-  </div>
+  </PageShell>
 </template>

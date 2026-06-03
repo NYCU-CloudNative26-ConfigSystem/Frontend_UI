@@ -56,9 +56,24 @@ function modeLabel(m: DisplayMode) {
   return m === 'truncated' ? 'Truncated' : m === 'collapsible' ? 'Collapsible' : 'Badge'
 }
 
+const displayModeOptions = computed(() =>
+  DISPLAY_MODES.map(value => ({ value, label: modeLabel(value) }))
+)
+
+function setCompanyDisplayMode(mode: string) {
+  if (!DISPLAY_MODES.includes(mode as DisplayMode)) return
+  companyDisplayMode.value = mode as DisplayMode
+  expandedCompanyList.value = false
+}
+
 // ── Template tab ──────────────────────────────────────────────────────────────
 
-const activeTab = ref<'template' | 'companies'>('template')
+type ConfigLevelTab = 'template' | 'companies'
+const activeTab = ref<ConfigLevelTab>('template')
+const configLevelTabOptions: { value: ConfigLevelTab; label: string }[] = [
+  { value: 'template', label: 'Template' },
+  { value: 'companies', label: 'Companies' },
+]
 const projectTemplate = ref<ProjectTemplateKey[]>([])
 const templateSearch = ref('')
 const templateAddError = ref('')
@@ -792,40 +807,31 @@ async function submitConfig() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50">
-
-    <!-- Sticky nav with breadcrumb -->
-    <nav class="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-slate-100">
-      <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2 min-w-0 text-sm">
-          <NuxtLink to="/home" class="text-slate-400 hover:text-slate-700 transition shrink-0">← Home</NuxtLink>
-          <span class="text-slate-200 shrink-0 select-none">|</span>
-          <template v-if="!projId">
-            <span class="font-semibold text-slate-900">Config Manager</span>
-          </template>
-          <template v-else-if="!cmpId">
-            <NuxtLink to="/projects" class="text-slate-400 hover:text-slate-700 transition shrink-0 hidden sm:inline">Projects</NuxtLink>
-            <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
-            <span class="font-semibold text-slate-900 truncate">{{ projectInfo?.display_name ?? projId }}</span>
+  <PageShell>
+    <template #nav>
+      <AppNav>
+        <template v-if="!projId">
+          <span class="font-semibold text-slate-900">Config Manager</span>
+        </template>
+        <template v-else-if="!cmpId">
+          <NuxtLink to="/projects" class="text-slate-400 hover:text-slate-700 transition shrink-0 hidden sm:inline">Projects</NuxtLink>
+          <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
+          <span class="font-semibold text-slate-900 truncate">{{ projectInfo?.display_name ?? projId }}</span>
+        </template>
+        <template v-else>
+          <button @click="backToCompanyList" class="text-slate-400 hover:text-slate-700 transition shrink-0 hidden sm:inline">{{ projectInfo?.display_name ?? projId }}</button>
+          <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
+          <template v-if="!envId">
+            <span class="font-semibold text-slate-900 truncate">{{ resolveCompanyName(cmpId) }}</span>
           </template>
           <template v-else>
-            <button @click="backToCompanyList" class="text-slate-400 hover:text-slate-700 transition shrink-0 hidden sm:inline">{{ projectInfo?.display_name ?? projId }}</button>
+            <button @click="backToEnvList" class="text-slate-400 hover:text-slate-700 transition shrink-0 hidden sm:inline">{{ resolveCompanyName(cmpId) }}</button>
             <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
-            <template v-if="!envId">
-              <span class="font-semibold text-slate-900 truncate">{{ resolveCompanyName(cmpId) }}</span>
-            </template>
-            <template v-else>
-              <button @click="backToEnvList" class="text-slate-400 hover:text-slate-700 transition shrink-0 hidden sm:inline">{{ resolveCompanyName(cmpId) }}</button>
-              <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
-              <span class="font-semibold text-slate-900 truncate capitalize">{{ envId }}</span>
-            </template>
+            <span class="font-semibold text-slate-900 truncate capitalize">{{ envId }}</span>
           </template>
-        </div>
-        <button @click="auth.logout()" class="text-sm text-slate-400 hover:text-red-500 transition shrink-0">Logout</button>
-      </div>
-    </nav>
-
-    <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
+        </template>
+      </AppNav>
+    </template>
 
       <!-- No project selected -->
       <div v-if="!projId" class="bg-white rounded-2xl ring-1 ring-slate-900/5 p-12 text-center space-y-2">
@@ -841,20 +847,7 @@ async function submitConfig() {
         <template v-else>
 
           <!-- Tab switcher -->
-          <div class="flex items-center gap-0.5 bg-white rounded-xl ring-1 ring-slate-900/5 p-1 self-start max-w-full overflow-x-auto">
-            <button
-              @click="activeTab = 'template'"
-              :class="activeTab === 'template' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'"
-              class="px-4 py-1.5 rounded-lg text-xs font-semibold transition">
-              Template
-            </button>
-            <button
-              @click="activeTab = 'companies'"
-              :class="activeTab === 'companies' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'"
-              class="px-4 py-1.5 rounded-lg text-xs font-semibold transition">
-              Companies
-            </button>
-          </div>
+          <SegmentedControl v-model="activeTab" :options="configLevelTabOptions" variant="primary" />
 
           <!-- ── Template tab ── -->
           <template v-if="activeTab === 'template'">
@@ -1013,19 +1006,13 @@ async function submitConfig() {
           <template v-else>
 
           <!-- Mode switcher -->
-          <div v-if="companiesWithConfig.length > 0" class="flex items-center gap-2">
+          <div v-if="companiesWithConfig.length > 0" class="flex flex-wrap items-center gap-2">
             <span class="text-xs text-slate-400 font-medium shrink-0">Company display:</span>
-            <div class="flex items-center gap-0.5 bg-white rounded-xl ring-1 ring-slate-900/5 p-1">
-              <button
-                v-for="m in DISPLAY_MODES" :key="m"
-                @click="companyDisplayMode = m; expandedCompanyList = false"
-                :class="companyDisplayMode === m
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'"
-                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition">
-                {{ modeLabel(m) }}
-              </button>
-            </div>
+            <SegmentedControl
+              :model-value="companyDisplayMode"
+              :options="displayModeOptions"
+              variant="primary"
+              @update:model-value="setCompanyDisplayMode" />
           </div>
 
           <!-- ── Mode A: Truncated rows ── -->
@@ -1458,15 +1445,7 @@ async function submitConfig() {
                   class="bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0 ring-1 ring-emerald-200">
                   Deployed
                 </span>
-                <!-- Approval status badge -->
-                <span v-if="snap.is_latest && snap.approval_status === 'approved'"
-                  class="bg-blue-50 text-blue-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Latest</span>
-                <span v-else-if="snap.approval_status === 'pending'"
-                  class="bg-yellow-50 text-yellow-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Pending review</span>
-                <span v-else-if="snap.approval_status === 'rejected'"
-                  class="bg-red-50 text-red-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Rejected</span>
-                <span v-else-if="snap.approval_status === 'approved'"
-                  class="bg-slate-100 text-slate-500 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Approved</span>
+                <StatusBadge :status="snap.approval_status" :is-latest="snap.is_latest" />
                 <span class="text-sm font-medium text-slate-700">{{ snap.name ?? formatDate(snap.date_created) }}</span>
                 <span v-if="snap.name" class="text-xs text-slate-400">· {{ formatDate(snap.date_created) }}</span>
                 <span class="text-xs text-slate-400">· {{ snap.created_by ?? 'unknown' }}</span>
@@ -1493,7 +1472,5 @@ async function submitConfig() {
         </div>
 
       </template>
-    </div>
-
-  </div>
+  </PageShell>
 </template>

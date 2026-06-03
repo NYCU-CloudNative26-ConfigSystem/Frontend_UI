@@ -42,7 +42,8 @@ const showRejectInput = ref(false)
 const rejectReason = ref('')
 const inheritEnv = ref('')
 const lineageView = ref<'focus' | 'deep'>('focus')
-const snapshotDetailTab = ref<'entries' | 'reviewer'>('entries')
+type SnapshotDetailTab = 'entries' | 'reviewer'
+const snapshotDetailTab = ref<SnapshotDetailTab>('entries')
 
 watch(canReview, (allowed) => {
   if (!allowed && snapshotDetailTab.value === 'reviewer') snapshotDetailTab.value = 'entries'
@@ -65,6 +66,14 @@ function formatDate(iso: string | undefined): string {
 const config = ref<ConfigReadResponse | null>(null)
 const loading = ref(true)
 const loadError = ref('')
+
+const snapshotDetailTabOptions = computed(() => {
+  const options: { value: SnapshotDetailTab; label: string; count?: number }[] = [
+    { value: 'entries', label: 'Config Entries', count: config.value?.rows.length ?? 0 },
+  ]
+  if (canReview.value) options.push({ value: 'reviewer', label: 'Similarity' })
+  return options
+})
 
 const resolvedNames = ref<Record<string, string>>({})
 const resolvedValues = ref<Record<string, string>>({})
@@ -460,20 +469,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50">
-
-    <!-- Nav -->
-    <AppNav>
-      <button
-        @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId, env: envId } })"
-        class="text-slate-400 hover:text-slate-700 transition shrink-0 capitalize hidden sm:inline">
-        {{ envId || 'Config' }}
-      </button>
-      <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
-      <span class="font-semibold text-slate-900 truncate font-mono text-xs">{{ uuid }}</span>
-    </AppNav>
-
-    <div class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
+  <PageShell>
+    <template #nav>
+      <AppNav>
+        <button
+          @click="router.push({ path: '/config', query: { proj: projId, cmp: cmpId, env: envId } })"
+          class="text-slate-400 hover:text-slate-700 transition shrink-0 capitalize hidden sm:inline">
+          {{ envId || 'Config' }}
+        </button>
+        <span class="text-slate-200 shrink-0 hidden sm:inline select-none">›</span>
+        <span class="font-semibold text-slate-900 truncate font-mono text-xs">{{ uuid }}</span>
+      </AppNav>
+    </template>
 
       <!-- Back button -->
       <div>
@@ -549,20 +556,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <div class="border-b border-slate-50 px-5 py-3">
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <h3 class="text-sm font-semibold text-slate-900">Snapshot details</h3>
-              <div class="flex w-full gap-0.5 overflow-x-auto rounded-lg bg-slate-100 p-0.5 sm:w-auto">
-                <button
-                  @click="snapshotDetailTab = 'entries'"
-                  :class="['flex-1 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition sm:flex-none', snapshotDetailTab === 'entries' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-600']">
-                  Config Entries
-                  <span class="ml-1 text-[10px] text-slate-400">{{ config.rows.length }}</span>
-                </button>
-                <button
-                  v-if="canReview"
-                  @click="snapshotDetailTab = 'reviewer'"
-                  :class="['flex-1 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition sm:flex-none', snapshotDetailTab === 'reviewer' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-600']">
-                  Similarity
-                </button>
-              </div>
+              <SegmentedControl v-model="snapshotDetailTab" :options="snapshotDetailTabOptions" />
             </div>
           </div>
 
@@ -926,7 +920,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </div>
 
       </template>
-    </div>
 
     <!-- Deploy confirmation modal -->
     <AppModal v-model="showDeployModal" title="Confirm deployment" :subtitle="`Snapshot ${uuid.slice(0, 8)} → ${config?.environment ?? ''}`">
@@ -1003,5 +996,5 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       </div>
     </Teleport>
 
-  </div>
+  </PageShell>
 </template>

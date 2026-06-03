@@ -43,12 +43,13 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50">
-    <AppNav>
-      <span class="font-semibold text-slate-900">About Me</span>
-    </AppNav>
+  <PageShell>
+    <template #nav>
+      <AppNav>
+        <span class="font-semibold text-slate-900">About Me</span>
+      </AppNav>
+    </template>
 
-    <main class="max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-4">
       <div>
         <button @click="router.push('/home')" class="text-sm text-slate-400 hover:text-slate-700 transition">
           Back to home
@@ -59,7 +60,7 @@ onMounted(async () => {
       <AlertBox v-else-if="loadError" :large="true">{{ loadError }}</AlertBox>
 
       <template v-else-if="profile">
-        <section class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
+        <SectionCard>
           <div class="px-5 py-5 border-b border-slate-50 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex items-center gap-4 min-w-0">
               <div class="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center shrink-0">
@@ -86,9 +87,9 @@ onMounted(async () => {
               <p v-if="profile.company && companyDisplayName !== profile.company" class="mt-0.5 text-xs text-slate-400 font-mono">{{ profile.company }}</p>
             </div>
           </div>
-        </section>
+        </SectionCard>
 
-        <section class="bg-white rounded-2xl ring-1 ring-slate-900/5 overflow-hidden">
+        <SectionCard>
           <div class="px-5 py-4 border-b border-slate-50">
             <h2 class="font-semibold text-slate-900 text-sm">Quick access</h2>
           </div>
@@ -109,8 +110,7 @@ onMounted(async () => {
               <p class="text-xs text-slate-400 mt-0.5">End this browser session</p>
             </button>
           </div>
-        </section>
+        </SectionCard>
       </template>
-    </main>
-  </div>
+  </PageShell>
 </template>

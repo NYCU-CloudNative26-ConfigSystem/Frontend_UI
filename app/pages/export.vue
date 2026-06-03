@@ -269,10 +269,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50">
-    <AppNav><span class="font-semibold text-slate-900">Config Export</span></AppNav>
-
-    <main class="max-w-3xl mx-auto px-4 py-6 pb-16 space-y-4">
+  <PageShell width-class="max-w-3xl">
+    <template #nav>
+      <AppNav><span class="font-semibold text-slate-900">Config Export</span></AppNav>
+    </template>
 
       <!-- Scope picker -->
       <section class="bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 space-y-4">
@@ -453,10 +453,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </div>
       </section>
 
-    </main>
-
-    <!-- Download confirmation modal -->
-    <AppModal v-model="showDownloadModal" title="Confirm download" :subtitle="previewResult?.filename">
+    <template #after>
+      <!-- Download confirmation modal -->
+      <AppModal v-model="showDownloadModal" title="Confirm download" :subtitle="previewResult?.filename">
 
       <div v-if="previewing" class="px-5 py-8 flex items-center justify-center gap-2 text-sm text-slate-400">
         <svg class="animate-spin h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24">
@@ -483,7 +482,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </div>
       </template>
 
-    </AppModal>
-
-  </div>
+      </AppModal>
+    </template>
+  </PageShell>
 </template>
