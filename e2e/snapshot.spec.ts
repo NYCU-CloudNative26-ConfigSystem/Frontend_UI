@@ -6,6 +6,7 @@ test.beforeEach(async ({ page }) => {
 
 test('snapshot detail tabs work on desktop', async ({ page }) => {
   await page.goto('/config-snapshot/snapshot-003?proj=project-alpha&cmp=acme&env=development')
+  await page.waitForLoadState('networkidle')
 
   await expect(page.getByRole('heading', { name: 'Snapshot details' })).toBeVisible()
   await expect(page.getByRole('button', { name: /Config Entries/ })).toBeVisible()

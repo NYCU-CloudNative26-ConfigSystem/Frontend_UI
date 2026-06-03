@@ -14,5 +14,5 @@ test('logs in and lands on home', async ({ page }) => {
 
   await expect(page).toHaveURL(/\/home$/)
   await expect(page.getByText('Config System')).toBeVisible()
-  await expect(page.getByText('Pending review')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Pending review' })).toBeVisible()
 })
