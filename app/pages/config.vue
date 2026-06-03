@@ -304,7 +304,11 @@ async function selectCompany(id: string) {
   cmpId.value = id
   newConfigCmpId.value = ''
   envId.value = ''
+  cmpDeployHistory.value = []
   router.replace({ query: { proj: projId.value, cmp: id } })
+  api.export.deployHistory(projId.value, id, auth.token)
+    .then(r => { cmpDeployHistory.value = r })
+    .catch(() => {})
 }
 
 async function selectEnvironment(env: string) {
@@ -340,6 +344,10 @@ const cmpDeployHistory = ref<DeployLogOut[]>([])
 const currentDeployedUuid = computed(() =>
   cmpDeployHistory.value.find(d => d.environment === envId.value && d.status === 'triggered')?.version_uuid ?? null
 )
+
+function latestDeployForEnv(env: string) {
+  return cmpDeployHistory.value.find(d => d.environment === env && d.status === 'triggered') ?? null
+}
 
 async function loadHistory() {
   if (!projId.value || !cmpId.value || !envId.value) return
@@ -1135,7 +1143,7 @@ async function submitConfig() {
             <button
               v-for="env in ENVIRONMENTS" :key="env.id"
               @click="selectEnvironment(env.id)"
-              class="rounded-2xl ring-1 ring-slate-200 p-5 text-left transition-all hover:shadow-md group"
+              class="rounded-2xl ring-1 ring-slate-200 p-5 text-left transition-all hover:shadow-md group flex flex-col justify-between min-h-[100px]"
               :class="{
                 'hover:ring-green-400 hover:bg-green-50/30': env.id === 'development',
                 'hover:ring-yellow-400 hover:bg-yellow-50/30': env.id === 'testing',
@@ -1166,7 +1174,7 @@ async function submitConfig() {
                 </template>
                 <p v-else class="text-xs text-slate-300 italic">No deployments yet</p>
               </div>
-              <span class="text-xs font-medium opacity-0 group-hover:opacity-100 transition"
+              <span class="text-xs font-medium mt-3 opacity-0 group-hover:opacity-100 transition"
                 :class="{
                   'text-green-500': env.id === 'development',
                   'text-yellow-500': env.id === 'testing',
