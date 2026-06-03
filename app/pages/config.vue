@@ -3,6 +3,7 @@ import type {
   CompanyResponse,
   ConfigHistoryItem,
   ConfigWriteEntry,
+  DeployLogOut,
   ProjectResponse,
   ProjectTemplateKey,
   ProjectTemplateVersion,
@@ -334,13 +335,23 @@ function backToCompanyList() {
 const snapshotHistory = ref<ConfigHistoryItem[]>([])
 const historyLoading = ref(false)
 const historyError = ref('')
+const cmpDeployHistory = ref<DeployLogOut[]>([])
+
+const currentDeployedUuid = computed(() =>
+  cmpDeployHistory.value.find(d => d.environment === envId.value && d.status === 'triggered')?.version_uuid ?? null
+)
 
 async function loadHistory() {
   if (!projId.value || !cmpId.value || !envId.value) return
   historyLoading.value = true
   historyError.value = ''
   try {
-    snapshotHistory.value = await api.configTable.history(projId.value, cmpId.value, envId.value, auth.token)
+    const [history, deploys] = await Promise.all([
+      api.configTable.history(projId.value, cmpId.value, envId.value, auth.token),
+      api.export.deployHistory(projId.value, cmpId.value, auth.token).catch(() => [] as DeployLogOut[]),
+    ])
+    snapshotHistory.value = history
+    cmpDeployHistory.value = deploys
   } catch (e: unknown) {
     historyError.value = e instanceof Error ? e.message : 'Failed to load history'
   } finally {
@@ -1164,6 +1175,11 @@ async function submitConfig() {
           </button>
           <div class="flex items-center gap-2">
             <button
+              @click="router.push({ path: '/deploy-history', query: { proj: projId, cmp: cmpId } })"
+              class="rounded-xl px-4 py-2 text-sm font-semibold transition shrink-0 bg-slate-100 text-slate-700 hover:bg-slate-200">
+              Deploy History
+            </button>
+            <button
               @click="router.push({ path: '/config-diff', query: { proj: projId, cmp: cmpId, env1: envId } })"
               class="rounded-xl px-4 py-2 text-sm font-semibold transition shrink-0 bg-slate-100 text-slate-700 hover:bg-slate-200">
               ↔ Compare
@@ -1392,6 +1408,11 @@ async function submitConfig() {
             class="w-full bg-white rounded-2xl ring-1 ring-slate-900/5 px-5 py-4 flex items-center justify-between text-left hover:ring-blue-400/40 hover:shadow-sm transition-all group">
             <div class="flex flex-col min-w-0 gap-1">
               <div class="flex flex-wrap items-center gap-2">
+                <!-- Deployed badge -->
+                <span v-if="snap.config_relation_uuid === currentDeployedUuid"
+                  class="bg-emerald-50 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0 ring-1 ring-emerald-200">
+                  Deployed
+                </span>
                 <!-- Approval status badge -->
                 <span v-if="snap.is_latest && snap.approval_status === 'approved'"
                   class="bg-blue-50 text-blue-700 text-xs font-semibold px-2.5 py-0.5 rounded-full shrink-0">Latest</span>

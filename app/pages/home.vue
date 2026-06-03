@@ -104,6 +104,15 @@ onMounted(loadPendingReviews)
           <p class="font-semibold text-slate-800 text-sm">Config Export</p>
           <p class="text-xs text-slate-400 mt-0.5">Download JSON, YAML, ENV, XML</p>
         </NuxtLink>
+        <NuxtLink to="/deploy-history"
+          class="group bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 hover:ring-blue-500/40 hover:shadow-sm transition-all">
+          <div class="w-9 h-9 bg-emerald-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-emerald-200 transition">
+            <span class="text-emerald-700 text-xs font-bold">DPL</span>
+          </div>
+          <p class="font-semibold text-slate-800 text-sm">Deploy History</p>
+          <p class="text-xs text-slate-400 mt-0.5">View all config deployments</p>
+        </NuxtLink>
+
         <NuxtLink to="/about-me"
           class="group bg-white rounded-2xl ring-1 ring-slate-900/5 p-5 hover:ring-blue-500/40 hover:shadow-sm transition-all">
           <div class="w-9 h-9 bg-emerald-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-emerald-200 transition">
