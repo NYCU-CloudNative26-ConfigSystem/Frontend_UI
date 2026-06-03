@@ -135,7 +135,7 @@ onMounted(load)
                   </span>
                 </td>
                 <td class="px-3 py-3 font-mono text-xs text-slate-500">
-                  {{ log.version_uuid.slice(0, 8) }}
+                  {{ log.snapshot_name || log.version_uuid.slice(0, 8) }}
                 </td>
                 <td class="px-3 py-3 font-mono text-xs text-slate-500">
                   .{{ log.format }}

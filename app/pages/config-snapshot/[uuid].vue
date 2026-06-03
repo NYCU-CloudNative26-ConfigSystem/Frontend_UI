@@ -380,6 +380,7 @@ async function deployConfig() {
       environment: config.value!.environment,
       format: deployFormat.value,
       reason: deployReason.value,
+      snapshot_name: changeDescription.value || '',
     }, auth.token)
     deploySuccess.value = 'Deployment triggered!'
     deployReason.value = ''
@@ -856,7 +857,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 <tr v-for="log in deployHistory" :key="log.id" class="text-slate-600">
                   <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">{{ new Date(log.deployed_at).toLocaleString() }}</td>
                   <td class="py-2 pr-3 capitalize">{{ log.environment }}</td>
-                  <td class="py-2 pr-3 font-mono text-slate-500">{{ log.version_uuid.slice(0, 8) }}</td>
+                  <td class="py-2 pr-3 font-mono text-slate-500">{{ log.snapshot_name || log.version_uuid.slice(0, 8) }}</td>
                   <td class="py-2 pr-3 font-mono">{{ log.format }}</td>
                   <td class="py-2 pr-3 max-w-[180px] truncate" :title="log.reason">{{ log.reason }}</td>
                   <td class="py-2 pr-3">{{ log.deployed_by }}</td>
