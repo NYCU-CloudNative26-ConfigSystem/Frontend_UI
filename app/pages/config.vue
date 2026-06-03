@@ -304,7 +304,11 @@ async function selectCompany(id: string) {
   cmpId.value = id
   newConfigCmpId.value = ''
   envId.value = ''
+  cmpDeployHistory.value = []
   router.replace({ query: { proj: projId.value, cmp: id } })
+  api.export.deployHistory(projId.value, id, auth.token)
+    .then(r => { cmpDeployHistory.value = r })
+    .catch(() => {})
 }
 
 async function selectEnvironment(env: string) {
@@ -340,6 +344,10 @@ const cmpDeployHistory = ref<DeployLogOut[]>([])
 const currentDeployedUuid = computed(() =>
   cmpDeployHistory.value.find(d => d.environment === envId.value && d.status === 'triggered')?.version_uuid ?? null
 )
+
+function latestDeployForEnv(env: string) {
+  return cmpDeployHistory.value.find(d => d.environment === env && d.status === 'triggered') ?? null
+}
 
 async function loadHistory() {
   if (!projId.value || !cmpId.value || !envId.value) return
@@ -1135,24 +1143,38 @@ async function submitConfig() {
             <button
               v-for="env in ENVIRONMENTS" :key="env.id"
               @click="selectEnvironment(env.id)"
-              class="rounded-2xl ring-1 ring-slate-200 p-5 text-left transition-all hover:shadow-md group"
+              class="rounded-2xl ring-1 ring-slate-200 p-5 text-left transition-all hover:shadow-md group flex flex-col justify-between min-h-[100px]"
               :class="{
                 'hover:ring-green-400 hover:bg-green-50/30': env.id === 'development',
                 'hover:ring-yellow-400 hover:bg-yellow-50/30': env.id === 'testing',
                 'hover:ring-orange-400 hover:bg-orange-50/30': env.id === 'staging',
                 'hover:ring-blue-400 hover:bg-blue-50/30': env.id === 'production',
               }">
-              <div class="flex items-center gap-2 mb-2">
-                <span class="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0"
-                  :class="{
-                    'bg-green-100 text-green-600': env.id === 'development',
-                    'bg-yellow-100 text-yellow-600': env.id === 'testing',
-                    'bg-orange-100 text-orange-600': env.id === 'staging',
-                    'bg-blue-100 text-blue-600': env.id === 'production',
-                  }">{{ env.label[0] }}</span>
-                <span class="font-semibold text-slate-800 text-sm">{{ env.label }}</span>
+              <div>
+                <div class="flex items-center gap-2 mb-3">
+                  <span class="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0"
+                    :class="{
+                      'bg-green-100 text-green-600': env.id === 'development',
+                      'bg-yellow-100 text-yellow-600': env.id === 'testing',
+                      'bg-orange-100 text-orange-600': env.id === 'staging',
+                      'bg-blue-100 text-blue-600': env.id === 'production',
+                    }">{{ env.label[0] }}</span>
+                  <span class="font-semibold text-slate-800 text-sm">{{ env.label }}</span>
+                </div>
+                <!-- Deployed version info -->
+                <template v-if="latestDeployForEnv(env.id)">
+                  <p class="text-xs text-slate-400 mb-0.5">Deployed</p>
+                  <p class="text-xs font-mono font-semibold text-slate-700 truncate">
+                    {{ latestDeployForEnv(env.id)!.version_uuid.slice(0, 8) }}
+                  </p>
+                  <p class="text-xs text-slate-400 mt-0.5">
+                    {{ new Date(latestDeployForEnv(env.id)!.deployed_at).toLocaleString() }}
+                    · {{ latestDeployForEnv(env.id)!.deployed_by }}
+                  </p>
+                </template>
+                <p v-else class="text-xs text-slate-300 italic">No deployments yet</p>
               </div>
-              <span class="text-xs font-medium opacity-0 group-hover:opacity-100 transition"
+              <span class="text-xs font-medium mt-3 opacity-0 group-hover:opacity-100 transition"
                 :class="{
                   'text-green-500': env.id === 'development',
                   'text-yellow-500': env.id === 'testing',
